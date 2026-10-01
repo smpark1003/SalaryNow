@@ -9,7 +9,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="URA Pay"
+        android:label="유라 급여"
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
