@@ -199,11 +199,11 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(8))
         }
 
-        val scheduleDesc = TextView(this).apply {
-            text = "• 평일 08:30 (출근 30분 전) 자동 시작\n" +
+      val scheduleDesc = TextView(this).apply {
+            text = "• 평일 08:30 (출근 30분 전) 알림 대기 및 출근 준비\n" +
+                    "• 09:00 ~ 18:00 정규 근무 실시간 급여 누적 (실근무 8시간)\n" +
                     "• 12:00 ~ 13:00 점심시간 누적 일시정지\n" +
-                    "• 18:00 퇴근 즉시 정산 알림 후 자동 종료\n" +
-                    "• 퇴근 후 백그라운드 배터리 소모 0%"
+                    "• 18:00 퇴근 즉시 일일 정산 후 자동 종료"
             textSize = 13f
             setTextColor(Color.parseColor("#2563EB"))
             setLineSpacing(dp(4).toFloat(), 1f)
@@ -381,8 +381,8 @@ class MainActivity : AppCompatActivity() {
                         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                         setTextColor(Color.parseColor("#0F172A"))
                     })
-                    addView(TextView(context).apply {
-                        text = "• 기본 근무: 08:30 ~ 18:00\n• 점심 시간: 12:00 ~ 13:00 (누적 일시정지)\n• 자동 시작: 평일 08:30 알람 가동"
+                 addView(TextView(context).apply {
+                        text = "• 정규 근무: 09:00 ~ 18:00 (실근무 8시간)\n• 출근 준비: 평일 08:30 알람 자동 가동\n• 점심 시간: 12:00 ~ 13:00 (누적 일시정지)\n• 주 40시간 / 월 209시간 표준 급여 산정"
                         textSize = 13f
                         setTextColor(Color.parseColor("#475569"))
                         setLineSpacing(dp(4).toFloat(), 1f)
