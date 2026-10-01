@@ -1,6 +1,7 @@
 package com.example.salarynow
 
 import android.app.*
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -10,6 +11,7 @@ import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import java.text.NumberFormat
 import java.util.*
@@ -18,23 +20,64 @@ import kotlin.concurrent.timer
 class SalaryService : Service() {
 
     private val CHANNEL_ID = "salary_media_channel"
+    private val SUMMARY_CHANNEL_ID = "salary_summary_channel"
     private val NOTIF_ID = 2001
+    private val SUMMARY_NOTIF_ID = 9999
+
     private var timer: Timer? = null
     private lateinit var mediaSession: MediaSessionCompat
 
     companion object {
-        var isMonthlyView = false // false: 오늘 하루, true: 총 월급
+        var isMonthlyView = false
         const val ACTION_TOGGLE_VIEW = "ACTION_TOGGLE_VIEW"
         const val ACTION_STOP_SERVICE = "ACTION_STOP_SERVICE"
+
+        fun scheduleNextWorkAlarm(context: Context) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, WorkAlarmReceiver::class.java).apply {
+                action = "START_SALARY_SERVICE"
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context, 1002, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val now = Calendar.getInstance()
+            val target = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 8)
+                set(Calendar.MINUTE, 30)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+
+            // 오늘 08:30이 이미 지났거나 주말이면 다음 평일 08:30으로 스케줄링
+            if (target.before(now) || now.get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY || now.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY) {
+                target.add(Calendar.DAY_OF_YEAR, 1)
+                while (target.get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY || target.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY) {
+                    target.add(Calendar.DAY_OF_YEAR, 1)
+                }
+            }
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, target.timeInMillis, pendingIntent)
+                } else {
+                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, target.timeInMillis, pendingIntent)
+                }
+            } catch (e: Exception) {
+                alarmManager.set(AlarmManager.RTC_WAKEUP, target.timeInMillis, pendingIntent)
+            }
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        createNotificationChannels()
 
-        // 갤럭시 나우바 미디어 플레이어 세션 생성
+        // 미디어 세션 생성 (하드웨어 이어폰 키를 낚아채지 않도록 무간섭 설정)
         mediaSession = MediaSessionCompat(this, "SalaryNowMedia").apply {
             isActive = true
+            setMediaButtonReceiver(null) // 이어폰/헤드셋 버튼 신호 가로채기 완전 비활성화
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onSkipToNext() {
                     isMonthlyView = !isMonthlyView
@@ -58,7 +101,7 @@ class SalaryService : Service() {
             }
         }
 
-        val initialNotif = buildNotification("계산 준비 중...", "데이터를 집계 중입니다.")
+        val initialNotif = buildNotification("준비 중...", "데이터를 집계 중입니다.")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIF_ID, initialNotif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
@@ -89,16 +132,35 @@ class SalaryService : Service() {
             val dayOfWeek = now.get(Calendar.DAY_OF_WEEK)
 
             val currentSecOfDay = (hour * 3600) + (min * 60) + sec
-            val startWorkSec = 9 * 3600
-            val endWorkSec = 18 * 3600
-            val lunchStartSec = 12 * 3600
-            val lunchEndSec = 13 * 3600
+            val startWorkSec = 9 * 3600       // 09:00
+            val endWorkSec = 18 * 3600        // 18:00
+            val lunchStartSec = 12 * 3600     // 12:00
+            val lunchEndSec = 13 * 3600       // 13:00
             val totalDailyWorkSec = (endWorkSec - startWorkSec) - (lunchEndSec - lunchStartSec)
             val dailyGoalWage = totalDailyWorkSec * perSecWage
 
-            var workedTodaySec = 0
             val isWeekend = (dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY)
 
+            // [퇴근 처리] 평일 18:00 정각 이후: 정산 팝업 후 즉시 종료
+            if (!isWeekend && currentSecOfDay >= endWorkSec) {
+                val passedWorkDays = getPassedWorkDaysBeforeToday(now)
+                val totalMonthWage = (passedWorkDays * dailyGoalWage) + dailyGoalWage
+
+                // 정산 알림 발행
+                showRetireSummaryNotification(dailyGoalWage.toInt(), totalMonthWage.toInt(), nf)
+
+                // 다음 평일 08:30 스케줄 예약
+                scheduleNextWorkAlarm(this@SalaryService)
+
+                // 앱 백그라운드 완전 종료
+                timer?.cancel()
+                timer = null
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return@timer
+            }
+
+            var workedTodaySec = 0
             if (!isWeekend) {
                 if (currentSecOfDay in startWorkSec..endWorkSec) {
                     workedTodaySec = if (currentSecOfDay < lunchStartSec) {
@@ -108,8 +170,6 @@ class SalaryService : Service() {
                     } else {
                         (currentSecOfDay - startWorkSec) - (lunchEndSec - lunchStartSec)
                     }
-                } else if (currentSecOfDay > endWorkSec) {
-                    workedTodaySec = totalDailyWorkSec
                 }
             }
 
@@ -120,7 +180,11 @@ class SalaryService : Service() {
             val title: String
             val subtitle: String
 
-            if (isMonthlyView) {
+            if (currentSecOfDay < startWorkSec && !isWeekend) {
+                title = "☕ 출근 30분 전! (09:00 시작)"
+                val remainM = (startWorkSec - currentSecOfDay) / 60
+                subtitle = "초당 ₩${String.format("%.2f", perSecWage)} | 출근까지 ${remainM}분"
+            } else if (isMonthlyView) {
                 val percent = ((monthAccumulated / salary) * 100).coerceIn(0.0, 100.0)
                 title = "이번달 ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", percent)}%)"
                 subtitle = "초당 ₩${String.format("%.2f", perSecWage)} | 월 목표: ₩${nf.format(salary.toInt())}"
@@ -130,11 +194,10 @@ class SalaryService : Service() {
                 val remainSec = (endWorkSec - currentSecOfDay).coerceAtLeast(0)
                 val remH = remainSec / 3600
                 val remM = (remainSec % 3600) / 60
-                val status = if (isWeekend) "주말 휴무" else if (currentSecOfDay >= endWorkSec) "퇴근 완료" else "퇴근까지 ${remH}시간 ${remM}분"
+                val status = if (isWeekend) "주말 휴무" else "퇴근까지 ${remH}시간 ${remM}분"
                 subtitle = "초당 ₩${String.format("%.2f", perSecWage)} | $status"
             }
 
-            // 갤럭시 나우바 / 잠금화면 미디어 캡슐에 데이터 전달
             mediaSession.setMetadata(
                 MediaMetadataCompat.Builder()
                     .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
@@ -143,7 +206,7 @@ class SalaryService : Service() {
                     .build()
             )
 
-            // One UI가 미디어가 재생 중인 것으로 인식하도록 활성화
+            // 타 음악 앱과 충돌하지 않도록 무간섭 재생 플래그 설정
             mediaSession.setPlaybackState(
                 PlaybackStateCompat.Builder()
                     .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
@@ -154,6 +217,25 @@ class SalaryService : Service() {
             val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notifManager.notify(NOTIF_ID, buildNotification(title, subtitle))
         }
+    }
+
+    private fun showRetireSummaryNotification(todayEarned: Int, monthEarned: Int, nf: NumberFormat) {
+        val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val summaryNotif = NotificationCompat.Builder(this, SUMMARY_CHANNEL_ID)
+            .setContentTitle("🎉 오늘 퇴근 완료! 고생하셨습니다.")
+            .setContentText("오늘 번 돈: ₩ ${nf.format(todayEarned)} | 이번달 누적: ₩ ${nf.format(monthEarned)}")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(
+                "👏 오늘 하루도 정말 수고 많으셨습니다!\n\n" +
+                "• 오늘 벌어들인 급여: ₩ ${nf.format(todayEarned)}\n" +
+                "• 이번 달 총 누적: ₩ ${nf.format(monthEarned)}\n\n" +
+                "🔋 배터리 절전을 위해 서비스가 완전 종료되며, 다음 출근일 08:30에 자동으로 다시 켜집니다."
+            ))
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+
+        notifManager.notify(SUMMARY_NOTIF_ID, summaryNotif)
     }
 
     private fun getPassedWorkDaysBeforeToday(now: Calendar): Int {
@@ -201,18 +283,27 @@ class SalaryService : Service() {
             .build()
     }
 
-    private fun createNotificationChannel() {
+    private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
+            val nm = getSystemService(NotificationManager::class.java)
+
+            val liveChannel = NotificationChannel(
                 CHANNEL_ID,
                 "실시간 급여 현황 (나우바)",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "미디어 플레이어 기반 실시간 급여 나우바"
                 setShowBadge(false)
             }
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(channel)
+            nm.createNotificationChannel(liveChannel)
+
+            val summaryChannel = NotificationChannel(
+                SUMMARY_CHANNEL_ID,
+                "퇴근 정산 알림",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "퇴근 시 오늘 번 돈을 정산하여 알려줍니다."
+            }
+            nm.createNotificationChannel(summaryChannel)
         }
     }
 
@@ -224,4 +315,15 @@ class SalaryService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+}
+
+class WorkAlarmReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        val dayOfWeek = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+        if (dayOfWeek != Calendar.SATURDAY && dayOfWeek != Calendar.SUNDAY) {
+            val serviceIntent = Intent(context, SalaryService::class.java)
+            ContextCompat.startForegroundService(context, serviceIntent)
+        }
+        SalaryService.scheduleNextWorkAlarm(context)
+    }
 }
