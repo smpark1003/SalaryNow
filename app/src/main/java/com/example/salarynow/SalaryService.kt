@@ -112,7 +112,6 @@ class SalaryService : Service() {
 
             val isWeekend = (dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY)
 
-            // [퇴근 처리] 18:00 퇴근 도달 시
             if (!isWeekend && currentSecOfDay >= endWorkSec) {
                 val passedWorkDays = getPassedWorkDaysBeforeToday(now)
                 val totalMonthWage = (passedWorkDays * dailyGoalWage) + dailyGoalWage
@@ -151,7 +150,6 @@ class SalaryService : Service() {
             val todayPercent = if (totalDailyWorkSec > 0) ((workedTodaySec.toDouble() / totalDailyWorkSec) * 100).coerceIn(0.0, 100.0) else 0.0
             val monthPercent = ((monthAccumulated / salary) * 100).coerceIn(0.0, 100.0)
 
-            // 알림 텍스트 조립
             val title: String
             val contentText: String
             val subText: String
@@ -176,7 +174,6 @@ class SalaryService : Service() {
                 progressVal = todayPercent.toInt()
             }
 
-            // 펼쳤을 때 나타나는 깔끔한 대시보드 텍스트
             val expandedDashboard = StringBuilder().apply {
                 append("━━━━━━━━━━━━━━━━━━━━\n")
                 append("💵 오늘 급여 : ₩ ${nf.format(todayAccumulated.toInt())} / ₩ ${nf.format(dailyGoalWage.toInt())} (${String.format("%.1f", todayPercent)}%)\n")
@@ -214,7 +211,6 @@ class SalaryService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // 탭 전환 버튼
         val toggleIntent = PendingIntent.getService(
             this, 1, Intent(this, SalaryService::class.java).apply { action = ACTION_TOGGLE_VIEW },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -229,8 +225,8 @@ class SalaryService : Service() {
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setProgress(100, progress, false) // 100% 기준 게이지 바
-            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText)) // 펼쳤을 때 대시보드
+            .setProgress(100, progress, false)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText))
             .addAction(android.R.drawable.ic_menu_rotate, toggleLabel, toggleIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
@@ -304,4 +300,16 @@ class SalaryService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+}
+
+// 누락되었던 08:30 아침 기상 알람 수신기 클래스
+class WorkAlarmReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        val dayOfWeek = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+        if (dayOfWeek != Calendar.SATURDAY && dayOfWeek != Calendar.SUNDAY) {
+            val serviceIntent = Intent(context, SalaryService::class.java)
+            ContextCompat.startForegroundService(context, serviceIntent)
+        }
+        SalaryService.scheduleNextWorkAlarm(context)
+    }
 }
