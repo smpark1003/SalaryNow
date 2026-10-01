@@ -112,6 +112,7 @@ class SalaryService : Service() {
 
             val isWeekend = (dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY)
 
+            // 18:00 퇴근 도달 시
             if (!isWeekend && currentSecOfDay >= endWorkSec) {
                 val passedWorkDays = getPassedWorkDaysBeforeToday(now)
                 val totalMonthWage = (passedWorkDays * dailyGoalWage) + dailyGoalWage
@@ -150,40 +151,36 @@ class SalaryService : Service() {
             val todayPercent = if (totalDailyWorkSec > 0) ((workedTodaySec.toDouble() / totalDailyWorkSec) * 100).coerceIn(0.0, 100.0) else 0.0
             val monthPercent = ((monthAccumulated / salary) * 100).coerceIn(0.0, 100.0)
 
+            // 글자 잘림 방지 튜닝 레이아웃
             val title: String
             val contentText: String
-            val subText: String
             val progressVal: Int
 
             if (currentSecOfDay < startWorkSec && !isWeekend) {
                 val waitMin = (startWorkSec - currentSecOfDay) / 60
-                title = "☕ 출근 준비 중 (09:00 시작)"
-                contentText = "초당 +₩${String.format("%.2f", perSecWage)} | 출근까지 ${waitMin}분"
-                subText = "대기 모드"
+                title = "☕ 출근 전 (09:00 시작)"
+                contentText = "초당 +₩${String.format("%.2f", perSecWage)} · 출근까지 ${waitMin}분"
                 progressVal = 0
             } else if (isMonthlyView) {
-                title = "💳 이달 누적: ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", monthPercent)}%)"
-                contentText = "초당 +₩${String.format("%.2f", perSecWage)} | 🎯 목표: ₩${nf.format(salary.toInt())}"
-                subText = "이달 급여 현황"
+                title = "💳 이번 달: ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", monthPercent)}%)"
+                contentText = "초당 +₩${String.format("%.2f", perSecWage)} · 목표 ₩${nf.format(salary.toInt())}"
                 progressVal = monthPercent.toInt()
             } else {
-                val timeStatus = if (isWeekend) "주말 휴무" else "⏰ 퇴근까지 ${remH}시간 ${remM}분"
-                title = "⚡ 오늘 누적: ₩ ${nf.format(todayAccumulated.toInt())} (${String.format("%.1f", todayPercent)}%)"
-                contentText = "초당 +₩${String.format("%.2f", perSecWage)} | $timeStatus"
-                subText = "오늘 근무 진행"
+                val timeStatus = if (isWeekend) "주말 휴무" else "퇴근까지 ${remH}시간 ${remM}분"
+                title = "⚡ 오늘 급여: ₩ ${nf.format(todayAccumulated.toInt())} (${String.format("%.1f", todayPercent)}%)"
+                contentText = "초당 +₩${String.format("%.2f", perSecWage)} · $timeStatus"
                 progressVal = todayPercent.toInt()
             }
 
+            // 펼쳤을 때 나타나는 확장 대시보드
             val expandedDashboard = StringBuilder().apply {
-                append("━━━━━━━━━━━━━━━━━━━━\n")
-                append("💵 오늘 급여 : ₩ ${nf.format(todayAccumulated.toInt())} / ₩ ${nf.format(dailyGoalWage.toInt())} (${String.format("%.1f", todayPercent)}%)\n")
-                append("💳 이달 누적 : ₩ ${nf.format(monthAccumulated.toInt())} / ₩ ${nf.format(salary.toInt())} (${String.format("%.1f", monthPercent)}%)\n")
-                append("⏱️ 퇴근 시간 : ${if (isWeekend) "주말" else "${remH}시간 ${remM}분 남음"}\n")
-                append("🏃 적립 속도 : 초당 ₩ ${String.format("%.2f", perSecWage)} (시급 ₩ ${nf.format(hourlyWage.toInt())})\n")
-                append("━━━━━━━━━━━━━━━━━━━━")
+                append("💵 오늘 급여 : ₩ ${nf.format(todayAccumulated.toInt())} (${String.format("%.1f", todayPercent)}%)\n")
+                append("💳 이달 누적 : ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", monthPercent)}%)\n")
+                append("⏱️ 남은 시간 : ${if (isWeekend) "주말" else "${remH}시간 ${remM}분 남음"}\n")
+                append("⚡ 초당 수령 : ₩ ${String.format("%.2f", perSecWage)} (시급 ₩ ${nf.format(hourlyWage.toInt())})")
             }.toString()
 
-            val notif = buildRichNotification(title, contentText, subText, expandedDashboard, progressVal)
+            val notif = buildRichNotification(title, contentText, expandedDashboard, progressVal)
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(NOTIF_ID, notif)
         }
@@ -193,7 +190,7 @@ class SalaryService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("월급 누적기 준비 중...")
             .setContentText("데이터를 집계하고 있습니다.")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
@@ -202,7 +199,6 @@ class SalaryService : Service() {
     private fun buildRichNotification(
         title: String,
         contentText: String,
-        subText: String,
         expandedText: String,
         progress: Int
     ): Notification {
@@ -220,8 +216,7 @@ class SalaryService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(contentText)
-            .setSubText(subText)
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setSmallIcon(android.R.drawable.stat_notify_sync) // 과녁 대신 깔끔한 동기화 아이콘
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -302,7 +297,6 @@ class SalaryService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 }
 
-// 누락되었던 08:30 아침 기상 알람 수신기 클래스
 class WorkAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val dayOfWeek = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
