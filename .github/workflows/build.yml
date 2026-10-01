@@ -22,7 +22,8 @@ jobs:
       - name: Setup Fixed Keystore
         run: |
           mkdir -p ~/.android
-          keytool -genkeypair -alias androiddebugkey -keypass android -keystore ~/.android/debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+          echo "yura_pay_fixed_keystore" > ~/.android/seed.txt
+          keytool -genkeypair -alias androiddebugkey -keypass android -keystore ~/.android/debug.keystore -storepass android -dname "CN=URA Pay,O=URA,C=KR" -keyalg RSA -keysize 2048 -validity 10000
 
       - name: Build with Gradle
         run: gradle assembleDebug --stacktrace
