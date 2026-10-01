@@ -151,7 +151,6 @@ class SalaryService : Service() {
             val todayPercent = if (totalDailyWorkSec > 0) ((workedTodaySec.toDouble() / totalDailyWorkSec) * 100).coerceIn(0.0, 100.0) else 0.0
             val monthPercent = ((monthAccumulated / salary) * 100).coerceIn(0.0, 100.0)
 
-            // 글자 잘림 방지 콤팩트 타이틀 구성
             val title: String
             val contentText: String
             val progressVal: Int
@@ -172,7 +171,6 @@ class SalaryService : Service() {
                 progressVal = todayPercent.toInt()
             }
 
-            // 아래로 펼쳤을 때 나타나는 대시보드
             val expandedDashboard = StringBuilder().apply {
                 append("💵 오늘 급여 : ₩ ${nf.format(todayAccumulated.toInt())} (${String.format("%.1f", todayPercent)}%)\n")
                 append("💳 이달 누적 : ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", monthPercent)}%)\n")
@@ -190,7 +188,7 @@ class SalaryService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("월급 누적기 준비 중...")
             .setContentText("데이터를 집계하고 있습니다.")
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setSmallIcon(R.drawable.ic_salary)
             .setShowWhen(false)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -217,8 +215,8 @@ class SalaryService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(contentText)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setShowWhen(false) // 우측 시간(10:26)을 숨겨서 가로 공간 대폭 확보!
+            .setSmallIcon(R.drawable.ic_salary) // 지폐/돈 전용 아이콘 적용
+            .setShowWhen(false)
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -242,7 +240,7 @@ class SalaryService : Service() {
                 "• 이달 총 누적 : ₩ ${nf.format(monthEarned)}\n\n" +
                 "🔋 배터리 절전을 위해 알림이 종료되며, 다음 출근일 08:30에 자동으로 다시 켜집니다."
             ))
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_salary)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
