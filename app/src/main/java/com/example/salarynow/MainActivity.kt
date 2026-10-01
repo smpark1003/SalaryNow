@@ -32,13 +32,13 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("SalaryPrefs", Context.MODE_PRIVATE)
 
         // ==========================================
-        // 1. [급여 탭] 화면 (기존 구현 100% 보존)
+        // 1. [급여 탭] 화면
         // ==========================================
         val scrollView = ScrollView(this).apply {
-            setBackgroundColor(Color.parseColor("#F8FAFC")) // 프리미엄 오프화이트 배경
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
             isFillViewport = true
             clipToPadding = false
-            setPadding(0, 0, 0, dp(100)) // 하단 플로팅 탭바 여백 확보
+            setPadding(0, 0, 0, dp(100))
         }
 
         val mainLayout = LinearLayout(this).apply {
@@ -78,7 +78,7 @@ class MainActivity : AppCompatActivity() {
         headerLayout.addView(brandTitle)
         headerLayout.addView(brandSubtitle)
 
-        // 1-2. 급여 입력 카드
+        // 1-2. 실수령액 입력 카드
         val salaryCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(22), dp(20), dp(22))
@@ -90,7 +90,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val cardLabel = TextView(this).apply {
-            text = "월 기본급 (세전)"
+            text = "월 실수령액 (세후 통장 입금액)"
             textSize = 13f
             setTextColor(Color.parseColor("#475569"))
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -119,10 +119,10 @@ class MainActivity : AppCompatActivity() {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
 
-        val initialSalary = prefs.getFloat("salary", 3000000f).toLong()
+        val initialSalary = prefs.getFloat("salary", 2600000f).toLong()
 
         val salaryInput = EditText(this).apply {
-            hint = "3,000,000"
+            hint = "2,600,000"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
             textSize = 21f
             setTextColor(Color.parseColor("#0F172A"))
@@ -138,7 +138,7 @@ class MainActivity : AppCompatActivity() {
         val calcPreview = TextView(this).apply {
             val hourlyWage = initialSalary.toDouble() / 209.0
             val perSec = hourlyWage / 3600.0
-            text = "초당 약 ₩${String.format("%.2f", perSec)} 적립 (월 209시간 기준)"
+            text = "초당 약 ₩${String.format("%.2f", perSec)} 실수령 적립 (월 209시간 기준)"
             textSize = 12f
             setTextColor(Color.parseColor("#64748B"))
         }
@@ -162,10 +162,10 @@ class MainActivity : AppCompatActivity() {
 
                         val hourlyWage = parsed.toDouble() / 209.0
                         val perSec = hourlyWage / 3600.0
-                        calcPreview.text = "초당 약 ₩${String.format("%.2f", perSec)} 적립 (월 209시간 기준)"
+                        calcPreview.text = "초당 약 ₩${String.format("%.2f", perSec)} 실수령 적립 (월 209시간 기준)"
                     } else {
                         currentText = ""
-                        calcPreview.text = "급여 금액을 입력해 주세요"
+                        calcPreview.text = "실수령액을 입력해 주세요"
                     }
                 }
             }
@@ -199,7 +199,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(8))
         }
 
-      val scheduleDesc = TextView(this).apply {
+        val scheduleDesc = TextView(this).apply {
             text = "• 평일 08:30 (출근 30분 전) 알림 대기 및 출근 준비\n" +
                     "• 09:00 ~ 18:00 정규 근무 실시간 급여 누적 (실근무 8시간)\n" +
                     "• 12:00 ~ 13:00 점심시간 누적 일시정지\n" +
@@ -231,7 +231,7 @@ class MainActivity : AppCompatActivity() {
 
             setOnClickListener {
                 val cleanStr = salaryInput.text.toString().replace(",", "").trim()
-                val salVal = cleanStr.toFloatOrNull() ?: 3000000f
+                val salVal = cleanStr.toFloatOrNull() ?: 2600000f
                 prefs.edit().putFloat("salary", salVal).apply()
 
                 SalaryService.scheduleNextWorkAlarm(this@MainActivity)
@@ -381,8 +381,8 @@ class MainActivity : AppCompatActivity() {
                         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                         setTextColor(Color.parseColor("#0F172A"))
                     })
-                 addView(TextView(context).apply {
-                        text = "• 정규 근무: 09:00 ~ 18:00 (실근무 8시간)\n• 출근 준비: 평일 08:30 알람 자동 가동\n• 점심 시간: 12:00 ~ 13:00 (누적 일시정지)\n• 주 40시간 / 월 209시간 표준 급여 산정"
+                    addView(TextView(context).apply {
+                        text = "• 정규 근무: 09:00 ~ 18:00 (실근무 8시간)\n• 출근 준비: 평일 08:30 알람 자동 가동\n• 점심 시간: 12:00 ~ 13:00 (누적 일시정지)\n• 주 40시간 / 월 209시간 실수령액 산정"
                         textSize = 13f
                         setTextColor(Color.parseColor("#475569"))
                         setLineSpacing(dp(4).toFloat(), 1f)
@@ -472,7 +472,7 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ).apply {
                 gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                bottomMargin = dp(24) // 바닥에서 살짝 띄우기
+                bottomMargin = dp(24)
             })
         }
 
