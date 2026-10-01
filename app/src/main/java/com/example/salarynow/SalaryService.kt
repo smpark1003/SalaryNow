@@ -4,30 +4,22 @@ import android.app.*
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
-import android.graphics.*
 import android.os.Build
 import android.os.IBinder
-import android.support.v4.media.MediaMetadataCompat
-import android.support.v4.media.session.MediaSessionCompat
-import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.media.app.NotificationCompat.MediaStyle
 import java.text.NumberFormat
 import java.util.*
 import kotlin.concurrent.timer
 
 class SalaryService : Service() {
 
-    private val CHANNEL_ID = "salary_media_channel"
+    private val CHANNEL_ID = "salary_dashboard_channel"
     private val SUMMARY_CHANNEL_ID = "salary_summary_channel"
-    private val NOTIF_ID = 2001
+    private val NOTIF_ID = 3001
     private val SUMMARY_NOTIF_ID = 9999
 
     private var timer: Timer? = null
-    private lateinit var mediaSession: MediaSessionCompat
-    private var cachedAlbumArt: Bitmap? = null
 
     companion object {
         var isMonthlyView = false
@@ -74,65 +66,6 @@ class SalaryService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
-        cachedAlbumArt = createCustomArt()
-
-        mediaSession = MediaSessionCompat(this, "SalaryNowMedia").apply {
-            isActive = true
-            setMediaButtonReceiver(null)
-            setCallback(object : MediaSessionCompat.Callback() {
-                override fun onSkipToNext() {
-                    isMonthlyView = !isMonthlyView
-                }
-                override fun onPlay() {
-                    isMonthlyView = false
-                }
-                override fun onPause() {
-                    isMonthlyView = true
-                }
-            })
-        }
-    }
-
-    // 휑한 회색 네모를 채워줄 세련된 다크 골드 카드 비트맵 동적 생성
-    private fun createCustomArt(): Bitmap {
-        val size = 500
-        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-
-        // 세련된 다크 블루-차콜 그라데이션 배경
-        val bgPaint = Paint().apply {
-            isAntiAlias = true
-            shader = LinearGradient(
-                0f, 0f, size.toFloat(), size.toFloat(),
-                Color.parseColor("#1e293b"), Color.parseColor("#0f172a"),
-                Shader.TileMode.CLAMP
-            )
-        }
-        val rect = RectF(0f, 0f, size.toFloat(), size.toFloat())
-        canvas.drawRoundRect(rect, 40f, 40f, bgPaint)
-
-        // 메인 ₩ 로고
-        val textPaint = Paint().apply {
-            color = Color.parseColor("#fbbf24") // 따뜻한 골드
-            textSize = 170f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textAlign = Paint.Align.CENTER
-            isAntiAlias = true
-        }
-        canvas.drawText("₩", size / 2f, size / 2f + 20f, textPaint)
-
-        // 하단 서브 텍스트
-        val subPaint = Paint().apply {
-            color = Color.parseColor("#94a3b8")
-            textSize = 38f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textAlign = Paint.Align.CENTER
-            isAntiAlias = true
-            letterSpacing = 0.15f
-        }
-        canvas.drawText("SALARY NOW", size / 2f, size / 2f + 110f, subPaint)
-
-        return bitmap
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -144,12 +77,7 @@ class SalaryService : Service() {
             }
         }
 
-        val initialNotif = buildNotification("준비 중...", "데이터를 집계 중입니다.")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_ID, initialNotif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
-        } else {
-            startForeground(NOTIF_ID, initialNotif)
-        }
+        startForeground(NOTIF_ID, buildPlaceholderNotification())
 
         if (timer == null) {
             startLiveTicking()
@@ -184,6 +112,7 @@ class SalaryService : Service() {
 
             val isWeekend = (dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY)
 
+            // [퇴근 처리] 18:00 퇴근 도달 시
             if (!isWeekend && currentSecOfDay >= endWorkSec) {
                 val passedWorkDays = getPassedWorkDaysBeforeToday(now)
                 val totalMonthWage = (passedWorkDays * dailyGoalWage) + dailyGoalWage
@@ -215,67 +144,110 @@ class SalaryService : Service() {
             val passedWorkDays = getPassedWorkDaysBeforeToday(now)
             val monthAccumulated = (passedWorkDays * dailyGoalWage) + todayAccumulated
 
+            val remainSec = (endWorkSec - currentSecOfDay).coerceAtLeast(0)
+            val remH = remainSec / 3600
+            val remM = (remainSec % 3600) / 60
+
+            val todayPercent = if (totalDailyWorkSec > 0) ((workedTodaySec.toDouble() / totalDailyWorkSec) * 100).coerceIn(0.0, 100.0) else 0.0
+            val monthPercent = ((monthAccumulated / salary) * 100).coerceIn(0.0, 100.0)
+
+            // 알림 텍스트 조립
             val title: String
-            val subtitle: String
+            val contentText: String
+            val subText: String
+            val progressVal: Int
 
             if (currentSecOfDay < startWorkSec && !isWeekend) {
-                title = "출근 준비 중 (09:00 시작)"
-                val remainM = (startWorkSec - currentSecOfDay) / 60
-                subtitle = "초당 ₩${String.format("%.2f", perSecWage)} | 출근까지 ${remainM}분"
+                val waitMin = (startWorkSec - currentSecOfDay) / 60
+                title = "☕ 출근 준비 중 (09:00 시작)"
+                contentText = "초당 +₩${String.format("%.2f", perSecWage)} | 출근까지 ${waitMin}분"
+                subText = "대기 모드"
+                progressVal = 0
             } else if (isMonthlyView) {
-                val percent = ((monthAccumulated / salary) * 100).coerceIn(0.0, 100.0)
-                title = "이번달 누적: ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", percent)}%)"
-                subtitle = "초당 ₩${String.format("%.2f", perSecWage)} | 월 목표: ₩${nf.format(salary.toInt())}"
+                title = "💳 이달 누적: ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", monthPercent)}%)"
+                contentText = "초당 +₩${String.format("%.2f", perSecWage)} | 🎯 목표: ₩${nf.format(salary.toInt())}"
+                subText = "이달 급여 현황"
+                progressVal = monthPercent.toInt()
             } else {
-                val percent = if (totalDailyWorkSec > 0) ((workedTodaySec.toDouble() / totalDailyWorkSec) * 100).coerceIn(0.0, 100.0) else 0.0
-                title = "오늘 하루: ₩ ${nf.format(todayAccumulated.toInt())} (${String.format("%.1f", percent)}%)"
-                val remainSec = (endWorkSec - currentSecOfDay).coerceAtLeast(0)
-                val remH = remainSec / 3600
-                val remM = (remainSec % 3600) / 60
-                val status = if (isWeekend) "주말 휴무" else "퇴근까지 ${remH}시간 ${remM}분"
-                subtitle = "초당 ₩${String.format("%.2f", perSecWage)} | $status"
+                val timeStatus = if (isWeekend) "주말 휴무" else "⏰ 퇴근까지 ${remH}시간 ${remM}분"
+                title = "⚡ 오늘 누적: ₩ ${nf.format(todayAccumulated.toInt())} (${String.format("%.1f", todayPercent)}%)"
+                contentText = "초당 +₩${String.format("%.2f", perSecWage)} | $timeStatus"
+                subText = "오늘 근무 진행"
+                progressVal = todayPercent.toInt()
             }
 
-            // 퇴근 게이지 바 연동 (밀리초 기준)
-            val durationMs = (totalDailyWorkSec * 1000L).coerceAtLeast(1000L)
-            val currentPosMs = (workedTodaySec * 1000L).coerceIn(0L, durationMs)
+            // 펼쳤을 때 나타나는 깔끔한 대시보드 텍스트
+            val expandedDashboard = StringBuilder().apply {
+                append("━━━━━━━━━━━━━━━━━━━━\n")
+                append("💵 오늘 급여 : ₩ ${nf.format(todayAccumulated.toInt())} / ₩ ${nf.format(dailyGoalWage.toInt())} (${String.format("%.1f", todayPercent)}%)\n")
+                append("💳 이달 누적 : ₩ ${nf.format(monthAccumulated.toInt())} / ₩ ${nf.format(salary.toInt())} (${String.format("%.1f", monthPercent)}%)\n")
+                append("⏱️ 퇴근 시간 : ${if (isWeekend) "주말" else "${remH}시간 ${remM}분 남음"}\n")
+                append("🏃 적립 속도 : 초당 ₩ ${String.format("%.2f", perSecWage)} (시급 ₩ ${nf.format(hourlyWage.toInt())})\n")
+                append("━━━━━━━━━━━━━━━━━━━━")
+            }.toString()
 
-            val metaBuilder = MediaMetadataCompat.Builder()
-                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
-                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, subtitle)
-                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, if (isMonthlyView) "실시간 월급 현황" else "오늘 근무 현황")
-                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs)
-
-            cachedAlbumArt?.let {
-                metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
-                metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, it)
-            }
-
-            mediaSession.setMetadata(metaBuilder.build())
-
-            // 진행률 게이지 바 실제 위치 갱신
-            mediaSession.setPlaybackState(
-                PlaybackStateCompat.Builder()
-                    .setState(PlaybackStateCompat.STATE_PLAYING, currentPosMs, 1.0f)
-                    .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_SKIP_TO_NEXT)
-                    .build()
-            )
-
-            val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notifManager.notify(NOTIF_ID, buildNotification(title, subtitle))
+            val notif = buildRichNotification(title, contentText, subText, expandedDashboard, progressVal)
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(NOTIF_ID, notif)
         }
+    }
+
+    private fun buildPlaceholderNotification(): Notification {
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("월급 누적기 준비 중...")
+            .setContentText("데이터를 집계하고 있습니다.")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+    }
+
+    private fun buildRichNotification(
+        title: String,
+        contentText: String,
+        subText: String,
+        expandedText: String,
+        progress: Int
+    ): Notification {
+        val openAppIntent = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // 탭 전환 버튼
+        val toggleIntent = PendingIntent.getService(
+            this, 1, Intent(this, SalaryService::class.java).apply { action = ACTION_TOGGLE_VIEW },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val toggleLabel = if (isMonthlyView) "📊 오늘 하루 보기" else "💳 총 월급 보기"
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(contentText)
+            .setSubText(subText)
+            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setContentIntent(openAppIntent)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setProgress(100, progress, false) // 100% 기준 게이지 바
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText)) // 펼쳤을 때 대시보드
+            .addAction(android.R.drawable.ic_menu_rotate, toggleLabel, toggleIntent)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
     }
 
     private fun showRetireSummaryNotification(todayEarned: Int, monthEarned: Int, nf: NumberFormat) {
         val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val summaryNotif = NotificationCompat.Builder(this, SUMMARY_CHANNEL_ID)
             .setContentTitle("🎉 오늘 퇴근 완료! 고생하셨습니다.")
-            .setContentText("오늘 번 돈: ₩ ${nf.format(todayEarned)} | 이번달 누적: ₩ ${nf.format(monthEarned)}")
+            .setContentText("오늘 번 돈: ₩ ${nf.format(todayEarned)} | 이달 누적: ₩ ${nf.format(monthEarned)}")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
                 "👏 오늘 하루도 정말 수고 많으셨습니다!\n\n" +
-                "• 오늘 번 돈: ₩ ${nf.format(todayEarned)}\n" +
-                "• 이번 달 총 누적: ₩ ${nf.format(monthEarned)}\n\n" +
-                "🔋 배터리 절전을 위해 서비스가 완전 종료되며, 다음 출근일 08:30에 자동으로 다시 켜집니다."
+                "• 오늘 번 돈 : ₩ ${nf.format(todayEarned)}\n" +
+                "• 이달 총 누적 : ₩ ${nf.format(monthEarned)}\n\n" +
+                "🔋 배터리 절전을 위해 알림이 종료되며, 다음 출근일 08:30에 자동으로 다시 켜집니다."
             ))
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setAutoCancel(true)
@@ -300,46 +272,16 @@ class SalaryService : Service() {
         return count
     }
 
-    private fun buildNotification(title: String, text: String): Notification {
-        val openAppIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val toggleIntent = PendingIntent.getService(
-            this, 1, Intent(this, SalaryService::class.java).apply { action = ACTION_TOGGLE_VIEW },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val toggleLabel = if (isMonthlyView) "오늘 하루 보기" else "총 월급 보기"
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setLargeIcon(cachedAlbumArt)
-            .setContentIntent(openAppIntent)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .addAction(android.R.drawable.ic_media_next, toggleLabel, toggleIntent)
-            .setStyle(
-                MediaStyle()
-                    .setMediaSession(mediaSession.sessionToken)
-                    .setShowActionsInCompactView(0)
-            )
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .build()
-    }
-
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
 
             val liveChannel = NotificationChannel(
                 CHANNEL_ID,
-                "실시간 급여 현황 (나우바)",
+                "실시간 급여 대시보드",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
+                description = "초당 누적 급여를 알림바에 깔끔하게 표시합니다."
                 setShowBadge(false)
             }
             nm.createNotificationChannel(liveChannel)
@@ -358,21 +300,8 @@ class SalaryService : Service() {
     override fun onDestroy() {
         timer?.cancel()
         timer = null
-        mediaSession.release()
-        cachedAlbumArt?.recycle()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-}
-
-class WorkAlarmReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent?) {
-        val dayOfWeek = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
-        if (dayOfWeek != Calendar.SATURDAY && dayOfWeek != Calendar.SUNDAY) {
-            val serviceIntent = Intent(context, SalaryService::class.java)
-            ContextCompat.startForegroundService(context, serviceIntent)
-        }
-        SalaryService.scheduleNextWorkAlarm(context)
-    }
 }
