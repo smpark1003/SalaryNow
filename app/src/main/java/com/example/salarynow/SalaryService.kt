@@ -1,309 +1,203 @@
 package com.example.salarynow
 
 import android.app.*
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import java.text.NumberFormat
 import java.util.*
-import kotlin.concurrent.timer
 
-class SalaryService : Service() {
+class SalaryService : ForegroundService() {
 
-    private val CHANNEL_ID = "salary_dashboard_channel"
-    private val SUMMARY_CHANNEL_ID = "salary_summary_channel"
-    private val NOTIF_ID = 3001
-    private val SUMMARY_NOTIF_ID = 9999
+    private val handler = Handler(Looper.getMainLooper())
+    private val nf = NumberFormat.getNumberInstance(Locale.KOREA)
+    private var updateRunnable: Runnable? = null
 
-    private var timer: Timer? = null
-
-    companion object {
-        var isMonthlyView = false
-        const val ACTION_TOGGLE_VIEW = "ACTION_TOGGLE_VIEW"
-        const val ACTION_STOP_SERVICE = "ACTION_STOP_SERVICE"
-
-        fun scheduleNextWorkAlarm(context: Context) {
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val intent = Intent(context, WorkAlarmReceiver::class.java).apply {
-                action = "START_SALARY_SERVICE"
-            }
-            val pendingIntent = PendingIntent.getBroadcast(
-                context, 1002, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val now = Calendar.getInstance()
-            val target = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, 8)
-                set(Calendar.MINUTE, 30)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-
-            if (target.before(now) || now.get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY || now.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY) {
-                target.add(Calendar.DAY_OF_YEAR, 1)
-                while (target.get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY || target.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY) {
-                    target.add(Calendar.DAY_OF_YEAR, 1)
-                }
-            }
-
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, target.timeInMillis, pendingIntent)
-                } else {
-                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, target.timeInMillis, pendingIntent)
-                }
-            } catch (e: Exception) {
-                alarmManager.set(AlarmManager.RTC_WAKEUP, target.timeInMillis, pendingIntent)
-            }
-        }
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannels()
+        createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_TOGGLE_VIEW -> isMonthlyView = !isMonthlyView
-            ACTION_STOP_SERVICE -> {
-                stopSelf()
-                return START_NOT_STICKY
-            }
-        }
-
-        startForeground(NOTIF_ID, buildPlaceholderNotification())
-
-        if (timer == null) {
-            startLiveTicking()
-        }
-
+        startSalaryTracker()
         return START_STICKY
     }
 
-    private fun startLiveTicking() {
+    private fun startSalaryTracker() {
         val prefs = getSharedPreferences("SalaryPrefs", Context.MODE_PRIVATE)
         val salary = prefs.getFloat("salary", 3000000f).toDouble()
-        val monthlyHours = prefs.getFloat("monthlyHours", 209f).toDouble()
 
-        val hourlyWage = salary / monthlyHours
-        val perSecWage = hourlyWage / 3600.0
-        val nf = NumberFormat.getNumberInstance(Locale.KOREA)
+        // 209시간 기준 초당 급여 (월급 / 209 / 3600)
+        val perSec = (salary / 209.0) / 3600.0
 
-        timer = timer(period = 1000) {
-            val now = Calendar.getInstance()
-            val hour = now.get(Calendar.HOUR_OF_DAY)
-            val min = now.get(Calendar.MINUTE)
-            val sec = now.get(Calendar.SECOND)
-            val dayOfWeek = now.get(Calendar.DAY_OF_WEEK)
+        updateRunnable = object : Runnable {
+            override fun run() {
+                val now = Calendar.getInstance()
+                val hour = now.get(Calendar.HOUR_OF_DAY)
+                val minute = now.get(Calendar.MINUTE)
+                val second = now.get(Calendar.SECOND)
+                val totalSecOfDay = hour * 3600 + minute * 60 + second
 
-            val currentSecOfDay = (hour * 3600) + (min * 60) + sec
-            val startWorkSec = 9 * 3600       // 09:00
-            val endWorkSec = 18 * 3600        // 18:00
-            val lunchStartSec = 12 * 3600     // 12:00
-            val lunchEndSec = 13 * 3600       // 13:00
-            val totalDailyWorkSec = (endWorkSec - startWorkSec) - (lunchEndSec - lunchStartSec)
-            val dailyGoalWage = totalDailyWorkSec * perSecWage
+                val sec0830 = 8 * 3600 + 30 * 60  // 08:30 (준비 대기)
+                val sec0900 = 9 * 3600            // 09:00 (정규 시작)
+                val sec1200 = 12 * 3600           // 12:00 (점심 시작)
+                val sec1300 = 13 * 3600           // 13:00 (오후 시작)
+                val sec1800 = 18 * 3600           // 18:00 (퇴근)
 
-            val isWeekend = (dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY)
+                when {
+                    // 1. [08:30 ~ 08:59] 출근 준비 & 대기 모드 (누적 0원)
+                    totalSecOfDay < sec0900 -> {
+                        val waitMinutes = (sec0900 - totalSecOfDay) / 60
+                        updateNotification(
+                            title = "출근 준비 중 ☕ (누적 대기)",
+                            content = "09:00 정규 근무 시작까지 약 ${waitMinutes + 1}분 남았습니다."
+                        )
+                    }
 
-            // 18:00 퇴근 도달 시
-            if (!isWeekend && currentSecOfDay >= endWorkSec) {
-                val passedWorkDays = getPassedWorkDaysBeforeToday(now)
-                val totalMonthWage = (passedWorkDays * dailyGoalWage) + dailyGoalWage
+                    // 2. [09:00 ~ 11:59] 오전 정규 근무
+                    totalSecOfDay in sec0900 until sec1200 -> {
+                        val workedSec = totalSecOfDay - sec0900
+                        val currentEarned = (workedSec * perSec).toLong()
+                        updateNotification(
+                            title = "오늘 번 돈: ₩${nf.format(currentEarned)}",
+                            content = "오전 근무 중 | 점심시간(12:00)까지 ${(sec1200 - totalSecOfDay) / 60}분"
+                        )
+                    }
 
-                showRetireSummaryNotification(dailyGoalWage.toInt(), totalMonthWage.toInt(), nf)
-                scheduleNextWorkAlarm(this@SalaryService)
+                    // 3. [12:00 ~ 12:59] 점심시간 (오전 3시간분 고정 유지)
+                    totalSecOfDay in sec1200 until sec1300 -> {
+                        val morningSec = 3 * 3600
+                        val morningEarned = (morningSec * perSec).toLong()
+                        updateNotification(
+                            title = "오늘 번 돈: ₩${nf.format(morningEarned)} (점심 정지)",
+                            content = "점심시간 푹 쉬세요 🍱 (13:00 오후 근무 재개)"
+                        )
+                    }
 
-                timer?.cancel()
-                timer = null
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-                return@timer
-            }
+                    // 4. [13:00 ~ 17:59] 오후 정규 근무
+                    totalSecOfDay in sec1300 until sec1800 -> {
+                        val morningSec = 3 * 3600
+                        val afternoonSec = totalSecOfDay - sec1300
+                        val currentEarned = ((morningSec + afternoonSec) * perSec).toLong()
+                        val remainMinutes = (sec1800 - totalSecOfDay) / 60
+                        updateNotification(
+                            title = "오늘 번 돈: ₩${nf.format(currentEarned)}",
+                            content = "실시간 근무 중 | 칼퇴까지 ${remainMinutes / 60}시간 ${remainMinutes % 60}분!"
+                        )
+                    }
 
-            var workedTodaySec = 0
-            if (!isWeekend) {
-                if (currentSecOfDay in startWorkSec..endWorkSec) {
-                    workedTodaySec = if (currentSecOfDay < lunchStartSec) {
-                        currentSecOfDay - startWorkSec
-                    } else if (currentSecOfDay in lunchStartSec until lunchEndSec) {
-                        lunchStartSec - startWorkSec
-                    } else {
-                        (currentSecOfDay - startWorkSec) - (lunchEndSec - lunchStartSec)
+                    // 5. [18:00 이후] 퇴근 정산 완료 및 자동 종료
+                    else -> {
+                        val totalWorkedSec = 8 * 3600
+                        val totalDailyEarned = (totalWorkedSec * perSec).toLong()
+                        showFinalNotification(totalDailyEarned)
+                        scheduleNextWorkAlarm(this@SalaryService)
+                        stopSelf()
+                        return
                     }
                 }
+
+                handler.postDelayed(this, 1000)
             }
-
-            val todayAccumulated = workedTodaySec * perSecWage
-            val passedWorkDays = getPassedWorkDaysBeforeToday(now)
-            val monthAccumulated = (passedWorkDays * dailyGoalWage) + todayAccumulated
-
-            val remainSec = (endWorkSec - currentSecOfDay).coerceAtLeast(0)
-            val remH = remainSec / 3600
-            val remM = (remainSec % 3600) / 60
-
-            val todayPercent = if (totalDailyWorkSec > 0) ((workedTodaySec.toDouble() / totalDailyWorkSec) * 100).coerceIn(0.0, 100.0) else 0.0
-            val monthPercent = ((monthAccumulated / salary) * 100).coerceIn(0.0, 100.0)
-
-            val title: String
-            val contentText: String
-            val progressVal: Int
-
-            if (currentSecOfDay < startWorkSec && !isWeekend) {
-                val waitMin = (startWorkSec - currentSecOfDay) / 60
-                title = "출근 전 (09:00 시작)"
-                contentText = "초당 +₩${String.format("%.2f", perSecWage)} · 출근까지 ${waitMin}분"
-                progressVal = 0
-            } else if (isMonthlyView) {
-                title = "이달 ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", monthPercent)}%)"
-                contentText = "초당 +₩${String.format("%.2f", perSecWage)} · 목표 ₩${nf.format(salary.toInt())}"
-                progressVal = monthPercent.toInt()
-            } else {
-                val timeStatus = if (isWeekend) "주말 휴무" else "퇴근까지 ${remH}시간 ${remM}분"
-                title = "오늘 ₩ ${nf.format(todayAccumulated.toInt())} (${todayPercent.toInt()}%)"
-                contentText = "초당 +₩${String.format("%.2f", perSecWage)} · $timeStatus"
-                progressVal = todayPercent.toInt()
-            }
-
-            val expandedDashboard = StringBuilder().apply {
-                append("💵 오늘 급여 : ₩ ${nf.format(todayAccumulated.toInt())} (${String.format("%.1f", todayPercent)}%)\n")
-                append("💳 이달 누적 : ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", monthPercent)}%)\n")
-                append("⏱️ 남은 시간 : ${if (isWeekend) "주말" else "${remH}시간 ${remM}분 남음"}\n")
-                append("⚡ 초당 수령 : ₩ ${String.format("%.2f", perSecWage)} (시급 ₩ ${nf.format(hourlyWage.toInt())})")
-            }.toString()
-
-            val notif = buildRichNotification(title, contentText, expandedDashboard, progressVal)
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(NOTIF_ID, notif)
         }
+        handler.post(updateRunnable!!)
     }
 
-    private fun buildPlaceholderNotification(): Notification {
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("월급 누적기 준비 중...")
-            .setContentText("데이터를 집계하고 있습니다.")
+    private fun updateNotification(title: String, content: String) {
+        val intent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_salary)
-            .setShowWhen(false)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-    }
-
-    private fun buildRichNotification(
-        title: String,
-        contentText: String,
-        expandedText: String,
-        progress: Int
-    ): Notification {
-        val openAppIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val toggleIntent = PendingIntent.getService(
-            this, 1, Intent(this, SalaryService::class.java).apply { action = ACTION_TOGGLE_VIEW },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val toggleLabel = if (isMonthlyView) "📊 오늘 하루 보기" else "💳 총 월급 보기"
-
-        return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
-            .setContentText(contentText)
-            .setSmallIcon(R.drawable.ic_salary) // 지폐/돈 전용 아이콘 적용
-            .setShowWhen(false)
-            .setContentIntent(openAppIntent)
+            .setContentText(content)
+            .setColor(Color.parseColor("#2563EB"))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setProgress(100, progress, false)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText))
-            .addAction(android.R.drawable.ic_menu_rotate, toggleLabel, toggleIntent)
+            .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
+
+        startForeground(NOTIFICATION_ID, notification)
     }
 
-    private fun showRetireSummaryNotification(todayEarned: Int, monthEarned: Int, nf: NumberFormat) {
-        val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val summaryNotif = NotificationCompat.Builder(this, SUMMARY_CHANNEL_ID)
-            .setContentTitle("🎉 오늘 퇴근 완료! 고생하셨습니다.")
-            .setContentText("오늘 번 돈: ₩ ${nf.format(todayEarned)} | 이달 누적: ₩ ${nf.format(monthEarned)}")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "👏 오늘 하루도 정말 수고 많으셨습니다!\n\n" +
-                "• 오늘 번 돈 : ₩ ${nf.format(todayEarned)}\n" +
-                "• 이달 총 누적 : ₩ ${nf.format(monthEarned)}\n\n" +
-                "🔋 배터리 절전을 위해 알림이 종료되며, 다음 출근일 08:30에 자동으로 다시 켜집니다."
-            ))
+    private fun showFinalNotification(dailySalary: Long) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val finalNoti = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_salary)
+            .setContentTitle("🎉 오늘 하루도 고생 많으셨습니다!")
+            .setContentText("오늘 정산 급여: ₩${nf.format(dailySalary)} 적립 완료 (퇴근)")
+            .setColor(Color.parseColor("#2563EB"))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        notifManager.notify(SUMMARY_NOTIF_ID, summaryNotif)
-    }
-
-    private fun getPassedWorkDaysBeforeToday(now: Calendar): Int {
-        var count = 0
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.YEAR, now.get(Calendar.YEAR))
-            set(Calendar.MONTH, now.get(Calendar.MONTH))
-            set(Calendar.DAY_OF_MONTH, 1)
-        }
-        while (cal.get(Calendar.DAY_OF_MONTH) < now.get(Calendar.DAY_OF_MONTH)) {
-            val d = cal.get(Calendar.DAY_OF_WEEK)
-            if (d != Calendar.SATURDAY && d != Calendar.SUNDAY) count++
-            cal.add(Calendar.DAY_OF_MONTH, 1)
-        }
-        return count
-    }
-
-    private fun createNotificationChannels() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = getSystemService(NotificationManager::class.java)
-
-            val liveChannel = NotificationChannel(
-                CHANNEL_ID,
-                "실시간 급여 대시보드",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "초당 누적 급여를 알림바에 깔끔하게 표시합니다."
-                setShowBadge(false)
-            }
-            nm.createNotificationChannel(liveChannel)
-
-            val summaryChannel = NotificationChannel(
-                SUMMARY_CHANNEL_ID,
-                "퇴근 정산 알림",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "퇴근 시 오늘 번 돈을 정산하여 알려줍니다."
-            }
-            nm.createNotificationChannel(summaryChannel)
-        }
+        manager.notify(FINAL_NOTI_ID, finalNoti)
     }
 
     override fun onDestroy() {
-        timer?.cancel()
-        timer = null
         super.onDestroy()
+        updateRunnable?.let { handler.removeCallbacks(it) }
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
-}
-
-class WorkAlarmReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent?) {
-        val dayOfWeek = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
-        if (dayOfWeek != Calendar.SATURDAY && dayOfWeek != Calendar.SUNDAY) {
-            val serviceIntent = Intent(context, SalaryService::class.java)
-            ContextCompat.startForegroundService(context, serviceIntent)
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "급여 실시간 누적",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "실시간 출퇴근 급여 누적 상태 표시"
+                setShowBadge(false)
+            }
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
         }
-        SalaryService.scheduleNextWorkAlarm(context)
+    }
+
+    companion object {
+        const val CHANNEL_ID = "salary_service_channel"
+        const val NOTIFICATION_ID = 1001
+        const val FINAL_NOTI_ID = 1002
+
+        // 평일 08:30 준비 모드 자동 기상 알람
+        fun scheduleNextWorkAlarm(context: Context) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, SalaryReceiver::class.java)
+            val pendingIntent = PendingIntent.getBroadcast(
+                context, 0, intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+
+            val cal = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 8)
+                set(Calendar.MINUTE, 30)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+
+                if (timeInMillis <= System.currentTimeMillis()) {
+                    add(Calendar.DAY_OF_YEAR, 1)
+                }
+                while (get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY || get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY) {
+                    add(Calendar.DAY_OF_YEAR, 1)
+                }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pendingIntent)
+            } else {
+                alarmManager.setExact(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pendingIntent)
+            }
+        }
     }
 }
