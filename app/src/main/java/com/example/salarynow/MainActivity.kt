@@ -9,6 +9,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -25,9 +27,11 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         supportActionBar?.hide()
 
-        // 전체 스크롤 뷰
+        val nf = NumberFormat.getNumberInstance(Locale.KOREA)
+        val prefs = getSharedPreferences("SalaryPrefs", Context.MODE_PRIVATE)
+
         val scrollView = ScrollView(this).apply {
-            setBackgroundColor(Color.parseColor("#F8FAFC")) // 세련된 Slate-50 배경
+            setBackgroundColor(Color.parseColor("#F8FAFC")) // 프리미엄 오프화이트 배경
             isFillViewport = true
         }
 
@@ -36,24 +40,24 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(24), dp(48), dp(24), dp(36))
         }
 
-        // 1. 헤더 (브랜드 타이틀)
+        // 1. 브랜드 타이틀 헤더
         val headerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(10), 0, dp(24))
         }
 
         val brandBadge = TextView(this).apply {
-            text = "SMART SALARY TRACKER"
+            text = "URA SMART SALARY"
             textSize = 11f
-            setTextColor(Color.parseColor("#2563EB")) // 코발트 블루
+            setTextColor(Color.parseColor("#2563EB"))
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             letterSpacing = 0.1f
         }
 
         val brandTitle = TextView(this).apply {
-            text = "URA Pay"
+            text = "유라 급여"
             textSize = 30f
-            setTextColor(Color.parseColor("#0F172A")) // 딥 네이비
+            setTextColor(Color.parseColor("#0F172A"))
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             setPadding(0, dp(4), 0, dp(2))
         }
@@ -68,14 +72,14 @@ class MainActivity : AppCompatActivity() {
         headerLayout.addView(brandTitle)
         headerLayout.addView(brandSubtitle)
 
-        // 2. 급여 설정 카드
+        // 2. 급여 입력 카드 (그림자 잘림 문제 해결 -> 깔끔한 1dp 테두리 카드 적용)
         val salaryCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(20))
-            elevation = dp(4).toFloat()
+            setPadding(dp(20), dp(22), dp(20), dp(22))
             background = GradientDrawable().apply {
                 setColor(Color.WHITE)
-                cornerRadius = dp(20).toFloat()
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(1), Color.parseColor("#E2E8F0")) // 칼같은 모던 테두리
             }
         }
 
@@ -92,7 +96,8 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(16), dp(12), dp(16), dp(12))
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#F1F5F9"))
-                cornerRadius = dp(14).toFloat()
+                cornerRadius = dp(12).toFloat()
+                setStroke(dp(1), Color.parseColor("#CBD5E1"))
             }
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -103,43 +108,76 @@ class MainActivity : AppCompatActivity() {
 
         val wonSymbol = TextView(this).apply {
             text = "₩ "
-            textSize = 20f
+            textSize = 21f
             setTextColor(Color.parseColor("#0F172A"))
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
 
-        val prefs = getSharedPreferences("SalaryPrefs", Context.MODE_PRIVATE)
+        val initialSalary = prefs.getFloat("salary", 3000000f).toLong()
+
         val salaryInput = EditText(this).apply {
-            hint = "3000000"
+            hint = "3,000,000"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            textSize = 20f
+            textSize = 21f
             setTextColor(Color.parseColor("#0F172A"))
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             background = null
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            setText(prefs.getFloat("salary", 3000000f).toInt().toString())
+            setText(nf.format(initialSalary))
         }
 
         inputContainer.addView(wonSymbol)
         inputContainer.addView(salaryInput)
 
         val calcPreview = TextView(this).apply {
-            text = "초당 약 ₩3.41 적립 (월 209시간 주 40시간 기준)"
+            val hourlyWage = initialSalary.toDouble() / 209.0
+            val perSec = hourlyWage / 3600.0
+            text = "초당 약 ₩${String.format("%.2f", perSec)} 적립 (월 209시간 기준)"
             textSize = 12f
-            setTextColor(Color.parseColor("#94A3B8"))
+            setTextColor(Color.parseColor("#64748B"))
         }
+
+        // 천 단위 자동 콤마(,) 포맷터 & 실시간 초당 적립액 재계산 리스너
+        salaryInput.addTextChangedListener(object : TextWatcher {
+            private var currentText = ""
+
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+
+            override fun afterTextChanged(s: Editable?) {
+                val str = s.toString()
+                if (str != currentText) {
+                    val clean = str.replace(",", "").trim()
+                    if (clean.isNotEmpty()) {
+                        val parsed = clean.toLongOrNull() ?: 0L
+                        val formatted = nf.format(parsed)
+                        currentText = formatted
+                        salaryInput.setText(formatted)
+                        salaryInput.setSelection(formatted.length)
+
+                        val hourlyWage = parsed.toDouble() / 209.0
+                        val perSec = hourlyWage / 3600.0
+                        calcPreview.text = "초당 약 ₩${String.format("%.2f", perSec)} 적립 (월 209시간 기준)"
+                    } else {
+                        currentText = ""
+                        calcPreview.text = "급여 금액을 입력해 주세요"
+                    }
+                }
+            }
+        })
 
         salaryCard.addView(cardLabel)
         salaryCard.addView(inputContainer)
         salaryCard.addView(calcPreview)
 
-        // 3. 스마트 스케줄 정보 카드
+        // 3. 스마트 스케줄 카드
         val scheduleCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(20), dp(20), dp(20))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#EFF6FF")) // 부드러운 블루 틴트
-                cornerRadius = dp(20).toFloat()
+                setColor(Color.parseColor("#EFF6FF"))
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(1), Color.parseColor("#BFDBFE"))
             }
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -162,14 +200,14 @@ class MainActivity : AppCompatActivity() {
                    "• 18:00 퇴근 즉시 정산 알림 후 자동 종료\n" +
                    "• 퇴근 후 백그라운드 배터리 소모 0%"
             textSize = 13f
-            setTextColor(Color.parseColor("#3B82F6"))
+            setTextColor(Color.parseColor("#2563EB"))
             setLineSpacing(dp(4).toFloat(), 1f)
         }
 
         scheduleCard.addView(scheduleTitle)
         scheduleCard.addView(scheduleDesc)
 
-        // 4. 세련된 실행 버튼
+        // 4. 모던 실행 버튼
         val startBtn = Button(this).apply {
             text = "🚀 자동 출퇴근 모드 실행"
             textSize = 16f
@@ -177,8 +215,8 @@ class MainActivity : AppCompatActivity() {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             setPadding(0, dp(16), 0, dp(16))
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#1E293B")) // 고급스러운 딥 네이비
-                cornerRadius = dp(16).toFloat()
+                setColor(Color.parseColor("#1E293B"))
+                cornerRadius = dp(14).toFloat()
             }
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -187,7 +225,8 @@ class MainActivity : AppCompatActivity() {
             layoutParams = params
 
             setOnClickListener {
-                val salVal = salaryInput.text.toString().toFloatOrNull() ?: 3000000f
+                val cleanStr = salaryInput.text.toString().replace(",", "").trim()
+                val salVal = cleanStr.toFloatOrNull() ?: 3000000f
                 prefs.edit().putFloat("salary", salVal).apply()
 
                 SalaryService.scheduleNextWorkAlarm(this@MainActivity)
@@ -204,7 +243,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, dp(14), 0, dp(14))
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#E2E8F0"))
-                cornerRadius = dp(16).toFloat()
+                cornerRadius = dp(14).toFloat()
             }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -245,7 +284,7 @@ class MainActivity : AppCompatActivity() {
         val serviceIntent = Intent(this, SalaryService::class.java)
         if (!isWeekend && hour in 8..17) {
             ContextCompat.startForegroundService(this, serviceIntent)
-            Toast.makeText(this, "URA Pay 가동 시작! 18시 퇴근 시 정산 후 종료됩니다.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "유라 급여 가동 시작! 18시 퇴근 시 정산 후 종료됩니다.", Toast.LENGTH_LONG).show()
         } else {
             Toast.makeText(this, "스케줄 등록 완료! 다음 출근일 08:30에 자동 실행됩니다.", Toast.LENGTH_LONG).show()
         }
