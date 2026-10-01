@@ -3,14 +3,14 @@
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <application
         android:allowBackup="true"
         android:label="월급 누적기"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
-
+        
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -22,7 +22,7 @@
 
         <service
             android:name=".SalaryService"
-            android:foregroundServiceType="specialUse"
+            android:foregroundServiceType="mediaPlayback"
             android:exported="false" />
     </application>
 </manifest>
