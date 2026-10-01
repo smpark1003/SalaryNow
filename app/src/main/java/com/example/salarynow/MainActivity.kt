@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -30,9 +31,14 @@ class MainActivity : AppCompatActivity() {
         val nf = NumberFormat.getNumberInstance(Locale.KOREA)
         val prefs = getSharedPreferences("SalaryPrefs", Context.MODE_PRIVATE)
 
+        // ==========================================
+        // 1. [급여 탭] 화면 (기존 구현 100% 보존)
+        // ==========================================
         val scrollView = ScrollView(this).apply {
             setBackgroundColor(Color.parseColor("#F8FAFC")) // 프리미엄 오프화이트 배경
             isFillViewport = true
+            clipToPadding = false
+            setPadding(0, 0, 0, dp(100)) // 하단 플로팅 탭바 여백 확보
         }
 
         val mainLayout = LinearLayout(this).apply {
@@ -40,7 +46,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(24), dp(48), dp(24), dp(36))
         }
 
-        // 1. 브랜드 타이틀 헤더
+        // 1-1. 브랜드 타이틀 헤더
         val headerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(10), 0, dp(24))
@@ -72,14 +78,14 @@ class MainActivity : AppCompatActivity() {
         headerLayout.addView(brandTitle)
         headerLayout.addView(brandSubtitle)
 
-        // 2. 급여 입력 카드 (그림자 잘림 문제 해결 -> 깔끔한 1dp 테두리 카드 적용)
+        // 1-2. 급여 입력 카드
         val salaryCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(22), dp(20), dp(22))
             background = GradientDrawable().apply {
                 setColor(Color.WHITE)
                 cornerRadius = dp(18).toFloat()
-                setStroke(dp(1), Color.parseColor("#E2E8F0")) // 칼같은 모던 테두리
+                setStroke(dp(1), Color.parseColor("#E2E8F0"))
             }
         }
 
@@ -137,7 +143,6 @@ class MainActivity : AppCompatActivity() {
             setTextColor(Color.parseColor("#64748B"))
         }
 
-        // 천 단위 자동 콤마(,) 포맷터 & 실시간 초당 적립액 재계산 리스너
         salaryInput.addTextChangedListener(object : TextWatcher {
             private var currentText = ""
 
@@ -170,7 +175,7 @@ class MainActivity : AppCompatActivity() {
         salaryCard.addView(inputContainer)
         salaryCard.addView(calcPreview)
 
-        // 3. 스마트 스케줄 카드
+        // 1-3. 스마트 스케줄 카드
         val scheduleCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(20), dp(20), dp(20))
@@ -196,9 +201,9 @@ class MainActivity : AppCompatActivity() {
 
         val scheduleDesc = TextView(this).apply {
             text = "• 평일 08:30 (출근 30분 전) 자동 시작\n" +
-                   "• 12:00 ~ 13:00 점심시간 누적 일시정지\n" +
-                   "• 18:00 퇴근 즉시 정산 알림 후 자동 종료\n" +
-                   "• 퇴근 후 백그라운드 배터리 소모 0%"
+                    "• 12:00 ~ 13:00 점심시간 누적 일시정지\n" +
+                    "• 18:00 퇴근 즉시 정산 알림 후 자동 종료\n" +
+                    "• 퇴근 후 백그라운드 배터리 소모 0%"
             textSize = 13f
             setTextColor(Color.parseColor("#2563EB"))
             setLineSpacing(dp(4).toFloat(), 1f)
@@ -207,7 +212,7 @@ class MainActivity : AppCompatActivity() {
         scheduleCard.addView(scheduleTitle)
         scheduleCard.addView(scheduleDesc)
 
-        // 4. 모던 실행 버튼
+        // 1-4. 실행 버튼
         val startBtn = Button(this).apply {
             text = "🚀 자동 출퇴근 모드 실행"
             textSize = 16f
@@ -234,7 +239,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 5. 정지 버튼
+        // 1-5. 정지 버튼
         val stopBtn = Button(this).apply {
             text = "🛑 알림 및 서비스 끄기"
             textSize = 14f
@@ -261,9 +266,217 @@ class MainActivity : AppCompatActivity() {
         mainLayout.addView(scheduleCard)
         mainLayout.addView(startBtn)
         mainLayout.addView(stopBtn)
-
         scrollView.addView(mainLayout)
-        setContentView(scrollView)
+
+        // ==========================================
+        // 2. [직장도구 탭] 화면
+        // ==========================================
+        val toolsView = ScrollView(this).apply {
+            visibility = View.GONE
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            isFillViewport = true
+            clipToPadding = false
+            setPadding(0, 0, 0, dp(100))
+
+            val layout = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(24), dp(48), dp(24), dp(36))
+
+                addView(TextView(context).apply {
+                    text = "직장인 도구"
+                    textSize = 30f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#0F172A"))
+                    setPadding(0, 0, 0, dp(24))
+                })
+
+                // 퇴근 대중교통 카드
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(20), dp(22), dp(20), dp(22))
+                    background = GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        cornerRadius = dp(18).toFloat()
+                        setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                    }
+                    val params = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(16) }
+                    layoutParams = params
+
+                    addView(TextView(context).apply {
+                        text = "🚌 퇴근 대중교통 전광판"
+                        textSize = 16f
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#0F172A"))
+                    })
+                    addView(TextView(context).apply {
+                        text = "회사 앞 버스 / 지하철 실시간 도착 정보 연동 예정"
+                        textSize = 13f
+                        setTextColor(Color.parseColor("#64748B"))
+                        setPadding(0, dp(6), 0, 0)
+                    })
+                })
+
+                // 점심 메뉴 & N빵 카드
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(20), dp(22), dp(20), dp(22))
+                    background = GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        cornerRadius = dp(18).toFloat()
+                        setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                    }
+                    addView(TextView(context).apply {
+                        text = "🍱 점심 메뉴 룰렛 & 더치페이"
+                        textSize = 16f
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#0F172A"))
+                    })
+                    addView(TextView(context).apply {
+                        text = "오늘 뭐 먹지 고민 해결과 1원 단위 더치페이 계산기"
+                        textSize = 13f
+                        setTextColor(Color.parseColor("#64748B"))
+                        setPadding(0, dp(6), 0, 0)
+                    })
+                })
+            }
+            addView(layout)
+        }
+
+        // ==========================================
+        // 3. [설정 탭] 화면
+        // ==========================================
+        val settingsView = ScrollView(this).apply {
+            visibility = View.GONE
+            setBackgroundColor(Color.parseColor("#F8FAFC"))
+            isFillViewport = true
+            clipToPadding = false
+            setPadding(0, 0, 0, dp(100))
+
+            val layout = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(24), dp(48), dp(24), dp(36))
+
+                addView(TextView(context).apply {
+                    text = "환경 설정"
+                    textSize = 30f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#0F172A"))
+                    setPadding(0, 0, 0, dp(24))
+                })
+
+                addView(LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(20), dp(22), dp(20), dp(22))
+                    background = GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        cornerRadius = dp(18).toFloat()
+                        setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                    }
+                    addView(TextView(context).apply {
+                        text = "기본 근무 정보"
+                        textSize = 16f
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                        setTextColor(Color.parseColor("#0F172A"))
+                    })
+                    addView(TextView(context).apply {
+                        text = "• 기본 근무: 08:30 ~ 18:00\n• 점심 시간: 12:00 ~ 13:00 (누적 일시정지)\n• 자동 시작: 평일 08:30 알람 가동"
+                        textSize = 13f
+                        setTextColor(Color.parseColor("#475569"))
+                        setLineSpacing(dp(4).toFloat(), 1f)
+                        setPadding(0, dp(8), 0, 0)
+                    })
+                })
+            }
+            addView(layout)
+        }
+
+        // =========================================================
+        // 4. ⭐ iOS 스타일 플로팅 독(Dock) 탭 바
+        // =========================================================
+        val colorActive = Color.parseColor("#2563EB")
+        val colorInactive = Color.parseColor("#94A3B8")
+
+        fun createTabItem(iconRes: Int, label: String, isActive: Boolean): Pair<LinearLayout, Pair<ImageView, TextView>> {
+            val iv = ImageView(this).apply {
+                setImageResource(iconRes)
+                setColorFilter(if (isActive) colorActive else colorInactive)
+                layoutParams = LinearLayout.LayoutParams(dp(22), dp(22))
+            }
+            val tv = TextView(this).apply {
+                text = label
+                textSize = 11f
+                typeface = if (isActive) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+                setTextColor(if (isActive) colorActive else colorInactive)
+                setPadding(0, dp(3), 0, 0)
+            }
+            val itemLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(18), dp(8), dp(18), dp(8))
+                addView(iv)
+                addView(tv)
+            }
+            return Pair(itemLayout, Pair(iv, tv))
+        }
+
+        val tabSalary = createTabItem(R.drawable.ic_salary, "급여", true)
+        val tabTools = createTabItem(android.R.drawable.ic_menu_agenda, "도구", false)
+        val tabSettings = createTabItem(android.R.drawable.ic_menu_preferences, "설정", false)
+
+        val floatingDock = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            elevation = dp(14).toFloat()
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadius = dp(32).toFloat()
+                setStroke(dp(1), Color.parseColor("#E2E8F0"))
+            }
+            addView(tabSalary.first)
+            addView(tabTools.first)
+            addView(tabSettings.first)
+        }
+
+        fun switchTab(idx: Int) {
+            scrollView.visibility = if (idx == 0) View.VISIBLE else View.GONE
+            toolsView.visibility = if (idx == 1) View.VISIBLE else View.GONE
+            settingsView.visibility = if (idx == 2) View.VISIBLE else View.GONE
+
+            fun updateTabVisual(pair: Pair<ImageView, TextView>, selected: Boolean) {
+                pair.first.setColorFilter(if (selected) colorActive else colorInactive)
+                pair.second.setTextColor(if (selected) colorActive else colorInactive)
+                pair.second.typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            }
+            updateTabVisual(tabSalary.second, idx == 0)
+            updateTabVisual(tabTools.second, idx == 1)
+            updateTabVisual(tabSettings.second, idx == 2)
+        }
+
+        tabSalary.first.setOnClickListener { switchTab(0) }
+        tabTools.first.setOnClickListener { switchTab(1) }
+        tabSettings.first.setOnClickListener { switchTab(2) }
+
+        // ==========================================
+        // 5. 루트 레이아웃 (화면 3개 + 플로팅 독)
+        // ==========================================
+        val rootLayout = FrameLayout(this).apply {
+            addView(scrollView)
+            addView(toolsView)
+            addView(settingsView)
+            addView(floatingDock, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                bottomMargin = dp(24) // 바닥에서 살짝 띄우기
+            })
+        }
+
+        setContentView(rootLayout)
     }
 
     private fun checkPermissionAndStartService() {
