@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.*
 import android.os.Build
 import android.os.IBinder
 import android.support.v4.media.MediaMetadataCompat
@@ -26,6 +27,7 @@ class SalaryService : Service() {
 
     private var timer: Timer? = null
     private lateinit var mediaSession: MediaSessionCompat
+    private var cachedAlbumArt: Bitmap? = null
 
     companion object {
         var isMonthlyView = false
@@ -50,7 +52,6 @@ class SalaryService : Service() {
                 set(Calendar.MILLISECOND, 0)
             }
 
-            // 오늘 08:30이 이미 지났거나 주말이면 다음 평일 08:30으로 스케줄링
             if (target.before(now) || now.get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY || now.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY) {
                 target.add(Calendar.DAY_OF_YEAR, 1)
                 while (target.get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY || target.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY) {
@@ -73,11 +74,11 @@ class SalaryService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
+        cachedAlbumArt = createCustomArt()
 
-        // 미디어 세션 생성 (하드웨어 이어폰 키를 낚아채지 않도록 무간섭 설정)
         mediaSession = MediaSessionCompat(this, "SalaryNowMedia").apply {
             isActive = true
-            setMediaButtonReceiver(null) // 이어폰/헤드셋 버튼 신호 가로채기 완전 비활성화
+            setMediaButtonReceiver(null)
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onSkipToNext() {
                     isMonthlyView = !isMonthlyView
@@ -90,6 +91,48 @@ class SalaryService : Service() {
                 }
             })
         }
+    }
+
+    // 휑한 회색 네모를 채워줄 세련된 다크 골드 카드 비트맵 동적 생성
+    private fun createCustomArt(): Bitmap {
+        val size = 500
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        // 세련된 다크 블루-차콜 그라데이션 배경
+        val bgPaint = Paint().apply {
+            isAntiAlias = true
+            shader = LinearGradient(
+                0f, 0f, size.toFloat(), size.toFloat(),
+                Color.parseColor("#1e293b"), Color.parseColor("#0f172a"),
+                Shader.TileMode.CLAMP
+            )
+        }
+        val rect = RectF(0f, 0f, size.toFloat(), size.toFloat())
+        canvas.drawRoundRect(rect, 40f, 40f, bgPaint)
+
+        // 메인 ₩ 로고
+        val textPaint = Paint().apply {
+            color = Color.parseColor("#fbbf24") // 따뜻한 골드
+            textSize = 170f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+        }
+        canvas.drawText("₩", size / 2f, size / 2f + 20f, textPaint)
+
+        // 하단 서브 텍스트
+        val subPaint = Paint().apply {
+            color = Color.parseColor("#94a3b8")
+            textSize = 38f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+            isAntiAlias = true
+            letterSpacing = 0.15f
+        }
+        canvas.drawText("SALARY NOW", size / 2f, size / 2f + 110f, subPaint)
+
+        return bitmap
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -141,18 +184,13 @@ class SalaryService : Service() {
 
             val isWeekend = (dayOfWeek == Calendar.SATURDAY || dayOfWeek == Calendar.SUNDAY)
 
-            // [퇴근 처리] 평일 18:00 정각 이후: 정산 팝업 후 즉시 종료
             if (!isWeekend && currentSecOfDay >= endWorkSec) {
                 val passedWorkDays = getPassedWorkDaysBeforeToday(now)
                 val totalMonthWage = (passedWorkDays * dailyGoalWage) + dailyGoalWage
 
-                // 정산 알림 발행
                 showRetireSummaryNotification(dailyGoalWage.toInt(), totalMonthWage.toInt(), nf)
-
-                // 다음 평일 08:30 스케줄 예약
                 scheduleNextWorkAlarm(this@SalaryService)
 
-                // 앱 백그라운드 완전 종료
                 timer?.cancel()
                 timer = null
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -181,16 +219,16 @@ class SalaryService : Service() {
             val subtitle: String
 
             if (currentSecOfDay < startWorkSec && !isWeekend) {
-                title = "☕ 출근 30분 전! (09:00 시작)"
+                title = "출근 준비 중 (09:00 시작)"
                 val remainM = (startWorkSec - currentSecOfDay) / 60
                 subtitle = "초당 ₩${String.format("%.2f", perSecWage)} | 출근까지 ${remainM}분"
             } else if (isMonthlyView) {
                 val percent = ((monthAccumulated / salary) * 100).coerceIn(0.0, 100.0)
-                title = "이번달 ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", percent)}%)"
+                title = "이번달 누적: ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", percent)}%)"
                 subtitle = "초당 ₩${String.format("%.2f", perSecWage)} | 월 목표: ₩${nf.format(salary.toInt())}"
             } else {
                 val percent = if (totalDailyWorkSec > 0) ((workedTodaySec.toDouble() / totalDailyWorkSec) * 100).coerceIn(0.0, 100.0) else 0.0
-                title = "오늘 ₩ ${nf.format(todayAccumulated.toInt())} (${String.format("%.1f", percent)}%)"
+                title = "오늘 하루: ₩ ${nf.format(todayAccumulated.toInt())} (${String.format("%.1f", percent)}%)"
                 val remainSec = (endWorkSec - currentSecOfDay).coerceAtLeast(0)
                 val remH = remainSec / 3600
                 val remM = (remainSec % 3600) / 60
@@ -198,18 +236,27 @@ class SalaryService : Service() {
                 subtitle = "초당 ₩${String.format("%.2f", perSecWage)} | $status"
             }
 
-            mediaSession.setMetadata(
-                MediaMetadataCompat.Builder()
-                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
-                    .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, subtitle)
-                    .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, if (isMonthlyView) "월급 누적기 (월간)" else "월급 누적기 (일간)")
-                    .build()
-            )
+            // 퇴근 게이지 바 연동 (밀리초 기준)
+            val durationMs = (totalDailyWorkSec * 1000L).coerceAtLeast(1000L)
+            val currentPosMs = (workedTodaySec * 1000L).coerceIn(0L, durationMs)
 
-            // 타 음악 앱과 충돌하지 않도록 무간섭 재생 플래그 설정
+            val metaBuilder = MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
+                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, subtitle)
+                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, if (isMonthlyView) "실시간 월급 현황" else "오늘 근무 현황")
+                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs)
+
+            cachedAlbumArt?.let {
+                metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, it)
+                metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, it)
+            }
+
+            mediaSession.setMetadata(metaBuilder.build())
+
+            // 진행률 게이지 바 실제 위치 갱신
             mediaSession.setPlaybackState(
                 PlaybackStateCompat.Builder()
-                    .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                    .setState(PlaybackStateCompat.STATE_PLAYING, currentPosMs, 1.0f)
                     .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_SKIP_TO_NEXT)
                     .build()
             )
@@ -226,7 +273,7 @@ class SalaryService : Service() {
             .setContentText("오늘 번 돈: ₩ ${nf.format(todayEarned)} | 이번달 누적: ₩ ${nf.format(monthEarned)}")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
                 "👏 오늘 하루도 정말 수고 많으셨습니다!\n\n" +
-                "• 오늘 벌어들인 급여: ₩ ${nf.format(todayEarned)}\n" +
+                "• 오늘 번 돈: ₩ ${nf.format(todayEarned)}\n" +
                 "• 이번 달 총 누적: ₩ ${nf.format(monthEarned)}\n\n" +
                 "🔋 배터리 절전을 위해 서비스가 완전 종료되며, 다음 출근일 08:30에 자동으로 다시 켜집니다."
             ))
@@ -269,6 +316,7 @@ class SalaryService : Service() {
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setLargeIcon(cachedAlbumArt)
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -311,6 +359,7 @@ class SalaryService : Service() {
         timer?.cancel()
         timer = null
         mediaSession.release()
+        cachedAlbumArt?.recycle()
         super.onDestroy()
     }
 
