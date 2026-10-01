@@ -9,11 +9,11 @@
 
     <application
         android:allowBackup="true"
-        android:label="월급 누적기"
+        android:label="URA Pay"
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
+        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
         
         <activity
             android:name=".MainActivity"
