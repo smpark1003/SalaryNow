@@ -6,21 +6,47 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
+import androidx.media.app.NotificationCompat.MediaStyle
 import java.text.NumberFormat
 import java.util.*
 import kotlin.concurrent.timer
 
 class SalaryService : Service() {
 
-    private val CHANNEL_ID = "salary_live_channel"
-    private val NOTIF_ID = 1001
+    private val CHANNEL_ID = "salary_media_channel"
+    private val NOTIF_ID = 2001
     private var timer: Timer? = null
+    private lateinit var mediaSession: MediaSessionCompat
 
     companion object {
         var isMonthlyView = false // false: 오늘 하루, true: 총 월급
         const val ACTION_TOGGLE_VIEW = "ACTION_TOGGLE_VIEW"
         const val ACTION_STOP_SERVICE = "ACTION_STOP_SERVICE"
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+
+        // 갤럭시 나우바 미디어 플레이어 세션 생성
+        mediaSession = MediaSessionCompat(this, "SalaryNowMedia").apply {
+            isActive = true
+            setCallback(object : MediaSessionCompat.Callback() {
+                override fun onSkipToNext() {
+                    isMonthlyView = !isMonthlyView
+                }
+                override fun onPlay() {
+                    isMonthlyView = false
+                }
+                override fun onPause() {
+                    isMonthlyView = true
+                }
+            })
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -32,11 +58,9 @@ class SalaryService : Service() {
             }
         }
 
-        createNotificationChannel()
-
-        val initialNotif = buildNotification("계산 준비 중...", "데이터를 집계 중입니다.", 0, 100)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIF_ID, initialNotif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        val initialNotif = buildNotification("계산 준비 중...", "데이터를 집계 중입니다.")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_ID, initialNotif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
             startForeground(NOTIF_ID, initialNotif)
         }
@@ -55,7 +79,6 @@ class SalaryService : Service() {
 
         val hourlyWage = salary / monthlyHours
         val perSecWage = hourlyWage / 3600.0
-
         val nf = NumberFormat.getNumberInstance(Locale.KOREA)
 
         timer = timer(period = 1000) {
@@ -66,10 +89,10 @@ class SalaryService : Service() {
             val dayOfWeek = now.get(Calendar.DAY_OF_WEEK)
 
             val currentSecOfDay = (hour * 3600) + (min * 60) + sec
-            val startWorkSec = 9 * 3600       // 09:00
-            val endWorkSec = 18 * 3600        // 18:00
-            val lunchStartSec = 12 * 3600     // 12:00
-            val lunchEndSec = 13 * 3600       // 13:00
+            val startWorkSec = 9 * 3600
+            val endWorkSec = 18 * 3600
+            val lunchStartSec = 12 * 3600
+            val lunchEndSec = 13 * 3600
             val totalDailyWorkSec = (endWorkSec - startWorkSec) - (lunchEndSec - lunchStartSec)
             val dailyGoalWage = totalDailyWorkSec * perSecWage
 
@@ -91,29 +114,45 @@ class SalaryService : Service() {
             }
 
             val todayAccumulated = workedTodaySec * perSecWage
-
             val passedWorkDays = getPassedWorkDaysBeforeToday(now)
             val monthAccumulated = (passedWorkDays * dailyGoalWage) + todayAccumulated
 
-            val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val title: String
+            val subtitle: String
 
             if (isMonthlyView) {
                 val percent = ((monthAccumulated / salary) * 100).coerceIn(0.0, 100.0)
-                val title = "💳 이번 달 누적: ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", percent)}%)"
-                val text = "초당 ₩${String.format("%.2f", perSecWage)} | 월 목표: ₩${nf.format(salary.toInt())}"
-                notifManager.notify(NOTIF_ID, buildNotification(title, text, percent.toInt(), 100))
+                title = "이번달 ₩ ${nf.format(monthAccumulated.toInt())} (${String.format("%.1f", percent)}%)"
+                subtitle = "초당 ₩${String.format("%.2f", perSecWage)} | 월 목표: ₩${nf.format(salary.toInt())}"
             } else {
                 val percent = if (totalDailyWorkSec > 0) ((workedTodaySec.toDouble() / totalDailyWorkSec) * 100).coerceIn(0.0, 100.0) else 0.0
-                val title = "⚡ 오늘 하루 누적: ₩ ${nf.format(todayAccumulated.toInt())} (${String.format("%.1f", percent)}%)"
-
+                title = "오늘 ₩ ${nf.format(todayAccumulated.toInt())} (${String.format("%.1f", percent)}%)"
                 val remainSec = (endWorkSec - currentSecOfDay).coerceAtLeast(0)
                 val remH = remainSec / 3600
                 val remM = (remainSec % 3600) / 60
                 val status = if (isWeekend) "주말 휴무" else if (currentSecOfDay >= endWorkSec) "퇴근 완료" else "퇴근까지 ${remH}시간 ${remM}분"
-
-                val text = "초당 ₩${String.format("%.2f", perSecWage)} | $status"
-                notifManager.notify(NOTIF_ID, buildNotification(title, text, percent.toInt(), 100))
+                subtitle = "초당 ₩${String.format("%.2f", perSecWage)} | $status"
             }
+
+            // 갤럭시 나우바 / 잠금화면 미디어 캡슐에 데이터 전달
+            mediaSession.setMetadata(
+                MediaMetadataCompat.Builder()
+                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
+                    .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, subtitle)
+                    .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, if (isMonthlyView) "월급 누적기 (월간)" else "월급 누적기 (일간)")
+                    .build()
+            )
+
+            // One UI가 미디어가 재생 중인 것으로 인식하도록 활성화
+            mediaSession.setPlaybackState(
+                PlaybackStateCompat.Builder()
+                    .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                    .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_SKIP_TO_NEXT)
+                    .build()
+            )
+
+            val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notifManager.notify(NOTIF_ID, buildNotification(title, subtitle))
         }
     }
 
@@ -132,7 +171,7 @@ class SalaryService : Service() {
         return count
     }
 
-    private fun buildNotification(title: String, text: String, progress: Int, maxProgress: Int): Notification {
+    private fun buildNotification(title: String, text: String): Notification {
         val openAppIntent = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -142,7 +181,7 @@ class SalaryService : Service() {
             this, 1, Intent(this, SalaryService::class.java).apply { action = ACTION_TOGGLE_VIEW },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val toggleText = if (isMonthlyView) "오늘 하루 보기" else "총 월급 보기"
+        val toggleLabel = if (isMonthlyView) "오늘 하루 보기" else "총 월급 보기"
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
@@ -151,10 +190,14 @@ class SalaryService : Service() {
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setProgress(maxProgress, progress, false)
-            .addAction(android.R.drawable.ic_menu_rotate, toggleText, toggleIntent)
+            .addAction(android.R.drawable.ic_media_next, toggleLabel, toggleIntent)
+            .setStyle(
+                MediaStyle()
+                    .setMediaSession(mediaSession.sessionToken)
+                    .setShowActionsInCompactView(0)
+            )
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
 
@@ -162,10 +205,10 @@ class SalaryService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "실시간 급여 현황",
+                "실시간 급여 현황 (나우바)",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "초당 누적 급여를 실시간으로 표시합니다."
+                description = "미디어 플레이어 기반 실시간 급여 나우바"
                 setShowBadge(false)
             }
             val nm = getSystemService(NotificationManager::class.java)
@@ -176,6 +219,7 @@ class SalaryService : Service() {
     override fun onDestroy() {
         timer?.cancel()
         timer = null
+        mediaSession.release()
         super.onDestroy()
     }
 
