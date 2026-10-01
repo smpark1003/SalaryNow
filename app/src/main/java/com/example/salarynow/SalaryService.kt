@@ -36,9 +36,9 @@ class SalaryService : Service() {
 
     private fun startSalaryTracker() {
         val prefs = getSharedPreferences("SalaryPrefs", Context.MODE_PRIVATE)
-        val salary = prefs.getFloat("salary", 3000000f).toDouble()
+        val salary = prefs.getFloat("salary", 2600000f).toDouble()
 
-        // 209시간 기준 초당 급여 (월급 / 209 / 3600)
+        // 209시간 기준 초당 급여 (실수령액 / 209 / 3600)
         val perSec = (salary / 209.0) / 3600.0
 
         updateRunnable = object : Runnable {
@@ -70,7 +70,7 @@ class SalaryService : Service() {
                         val currentEarned = (workedSec * perSec).toLong()
                         val remainLunchMin = (sec1200 - totalSecOfDay) / 60
                         updateNotification(
-                            title = "오늘 번 돈: ₩${nf.format(currentEarned)}",
+                            title = "오늘 번 돈(실수령): ₩${nf.format(currentEarned)}",
                             content = "오전 근무 중 | 점심시간(12:00)까지 ${remainLunchMin}분"
                         )
                     }
@@ -80,7 +80,7 @@ class SalaryService : Service() {
                         val morningSec = 3 * 3600
                         val morningEarned = (morningSec * perSec).toLong()
                         updateNotification(
-                            title = "오늘 번 돈: ₩${nf.format(morningEarned)} (점심 정지)",
+                            title = "오늘 번 돈(실수령): ₩${nf.format(morningEarned)} (점심 정지)",
                             content = "점심시간 푹 쉬세요 🍱 (13:00 오후 근무 재개)"
                         )
                     }
@@ -94,7 +94,7 @@ class SalaryService : Service() {
                         val remainHour = remainSec / 3600
                         val remainMin = (remainSec % 3600) / 60
                         updateNotification(
-                            title = "오늘 번 돈: ₩${nf.format(currentEarned)}",
+                            title = "오늘 번 돈(실수령): ₩${nf.format(currentEarned)}",
                             content = "실시간 근무 중 | 칼퇴까지 ${remainHour}시간 ${remainMin}분!"
                         )
                     }
@@ -142,7 +142,7 @@ class SalaryService : Service() {
         val finalNoti = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_salary)
             .setContentTitle("🎉 오늘 하루도 고생 많으셨습니다!")
-            .setContentText("오늘 정산 급여: ₩${nf.format(dailySalary)} 적립 완료 (퇴근)")
+            .setContentText("오늘 정산 급여(실수령): ₩${nf.format(dailySalary)} 적립 완료 (퇴근)")
             .setColor(Color.parseColor("#2563EB"))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
