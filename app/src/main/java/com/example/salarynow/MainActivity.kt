@@ -100,20 +100,37 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    // 문서(Documents) 폴더 저장 함수
     private fun backupToDocuments(context: Context, jsonStr: String): Boolean {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val resolver = context.contentResolver
-                val uri = MediaStore.Files.getContentUri("external")
-                val values = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, "salary_backup.json")
-                    put(MediaStore.MediaColumns.MIME_TYPE, "application/json")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS + "/URAPay")
+                val projection = arrayOf(MediaStore.MediaColumns._ID)
+                val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+                val selectionArgs = arrayOf("salary_backup.json", "%${Environment.DIRECTORY_DOCUMENTS}/URAPay%")
+                val existingUri = resolver.query(
+                    MediaStore.Files.getContentUri("external"),
+                    projection,
+                    selection,
+                    selectionArgs,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+                        MediaStore.Files.getContentUri("external").buildUpon().appendPath(id.toString()).build()
+                    } else null
                 }
-                val itemUri = resolver.insert(uri, values)
-                itemUri?.let {
-                    resolver.openOutputStream(it)?.use { os ->
+
+                val targetUri = existingUri ?: run {
+                    val values = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, "salary_backup.json")
+                        put(MediaStore.MediaColumns.MIME_TYPE, "application/json")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS + "/URAPay")
+                    }
+                    resolver.insert(MediaStore.Files.getContentUri("external"), values)
+                }
+
+                targetUri?.let { uri ->
+                    resolver.openOutputStream(uri, "wt")?.use { os ->
                         os.write(jsonStr.toByteArray(Charsets.UTF_8))
                     }
                     true
@@ -130,7 +147,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 문서(Documents) 폴더 읽기 함수
     private fun readFromDocuments(context: Context): String? {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -171,18 +187,35 @@ class MainActivity : AppCompatActivity() {
         val nf = NumberFormat.getNumberInstance(Locale.KOREA)
         val prefs = getSharedPreferences("SalaryPrefs", Context.MODE_PRIVATE)
 
-        // 앱 최초 실행 시 문서 폴더의 기존 백업 데이터 자동 복원
+        // 앱 최초 실행 시 문서 폴더 백업 자동 복원 시도
         if (!prefs.contains("salary")) {
-            readFromDocuments(this)?.let { jsonStr ->
-                try {
+            try {
+                readFromDocuments(this)?.let { jsonStr ->
                     val obj = JSONObject(jsonStr)
                     prefs.edit()
                         .putFloat("salary", obj.optDouble("salary", 2600000.0).toFloat())
                         .putFloat("total_leave", obj.optDouble("total_leave", 15.0).toFloat())
                         .putFloat("used_leave", obj.optDouble("used_leave", 0.0).toFloat())
                         .apply()
+                }
+            } catch (_: Exception) {}
+        }
+
+        fun autoSaveBackup() {
+            Thread {
+                try {
+                    val s = prefs.getFloat("salary", 2600000f)
+                    val tl = prefs.getFloat("total_leave", 15.0f)
+                    val ul = prefs.getFloat("used_leave", 0.0f)
+                    val json = JSONObject().apply {
+                        put("salary", s.toDouble())
+                        put("total_leave", tl.toDouble())
+                        put("used_leave", ul.toDouble())
+                        put("backup_time", System.currentTimeMillis())
+                    }
+                    backupToDocuments(this@MainActivity, json.toString())
                 } catch (_: Exception) {}
-            }
+            }.start()
         }
 
         // ==========================================
@@ -200,7 +233,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(24), dp(48), dp(24), dp(36))
         }
 
-        // 1-1. 헤더 (핀테크 타이포그래피)
+        // 1-1. 헤더
         val headerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(10), 0, dp(24))
@@ -465,7 +498,7 @@ class MainActivity : AppCompatActivity() {
             text = "세전 월 ₩ 3,000,000 | 4대보험·세금 공제 -₩ 387,202"
             textSize = 12f
             setTextColor(Color.parseColor("#64748B"))
-            setPadding(0, dp(4), 0, 0)
+            setPadding(0, dp(4), 0, dp(0))
         }
 
         annualResultCard.addView(tvAnnualCalculatedNet)
@@ -634,20 +667,6 @@ class MainActivity : AppCompatActivity() {
 
         scheduleCard.addView(scheduleTitle)
         scheduleCard.addView(scheduleDesc)
-
-        // 문서 폴더 자동 백업 실행 함수
-        fun autoSaveBackup() {
-            val s = prefs.getFloat("salary", 2600000f)
-            val tl = prefs.getFloat("total_leave", 15.0f)
-            val ul = prefs.getFloat("used_leave", 0.0f)
-            val json = JSONObject().apply {
-                put("salary", s.toDouble())
-                put("total_leave", tl.toDouble())
-                put("used_leave", ul.toDouble())
-                put("backup_time", System.currentTimeMillis())
-            }
-            backupToDocuments(this, json.toString())
-        }
 
         // 1-4. 실행 버튼
         val startBtn = Button(this).apply {
@@ -1020,7 +1039,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 // ---------------------------------------------------------
-                // 도구 2: 연차 · 반차 계산기 카드
+                // 도구 2: 연차 · 반차 계산기 카드 (무한 재귀 완벽 방지)
                 // ---------------------------------------------------------
                 val leaveCard = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
@@ -1071,6 +1090,7 @@ class MainActivity : AppCompatActivity() {
 
                 var totalLeave = prefs.getFloat("total_leave", 15.0f)
                 var usedLeave = prefs.getFloat("used_leave", 0.0f)
+                var isInternalTextChange = false
 
                 val etTotalLeave = EditText(context).apply {
                     hint = "15.0"
@@ -1184,19 +1204,17 @@ class MainActivity : AppCompatActivity() {
                     textSize = 15f
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     setTextColor(Color.parseColor("#0F172A"))
-                    setPadding(0, dp(2), 0, 0)
+                    setPadding(0, dp(2), 0, dp(0))
                 }
                 allowanceBox.addView(tvAllowanceLabel)
                 allowanceBox.addView(tvAllowanceValue)
                 leaveCard.addView(allowanceBox)
 
-                fun refreshLeaveUI() {
-                    totalLeave = prefs.getFloat("total_leave", 15.0f)
-                    usedLeave = prefs.getFloat("used_leave", 0.0f)
+                // 화면 텍스트만 업데이트 (etTotalLeave.setText를 절대 호출하지 않음 -> 무한루프 방지)
+                fun updateLeaveSummaryOnly() {
                     val remain = (totalLeave - usedLeave).coerceAtLeast(0.0f)
-                    val usedPercent = if (totalLeave > 0f) (usedLeave / totalLeave * 100).toInt() else 0
+                    val usedPercent = if (totalLeave > 0f) ((usedLeave / totalLeave) * 100).toInt() else 0
 
-                    etTotalLeave.setText(String.format(Locale.KOREA, "%.1f", totalLeave))
                     tvRemainLeave.text = "${String.format(Locale.KOREA, "%.1f", remain)}일 남음"
                     tvLeaveSubInfo.text = "사용 ${String.format(Locale.KOREA, "%.1f", usedLeave)}일 / 소진율 ${usedPercent}%"
 
@@ -1213,12 +1231,24 @@ class MainActivity : AppCompatActivity() {
                     autoSaveBackup()
                 }
 
-                triggerLeaveRefresh = { refreshLeaveUI() }
+                fun fullSyncLeaveUI() {
+                    isInternalTextChange = true
+                    totalLeave = prefs.getFloat("total_leave", 15.0f)
+                    usedLeave = prefs.getFloat("used_leave", 0.0f)
+                    val formatted = String.format(Locale.KOREA, "%.1f", totalLeave)
+                    if (etTotalLeave.text.toString() != formatted) {
+                        etTotalLeave.setText(formatted)
+                    }
+                    isInternalTextChange = false
+                    updateLeaveSummaryOnly()
+                }
+
+                triggerLeaveRefresh = { fullSyncLeaveUI() }
 
                 btnUseHalf.setOnClickListener {
                     if (totalLeave - usedLeave >= 0.5f) {
-                        prefs.edit().putFloat("used_leave", usedLeave + 0.5f).apply()
-                        refreshLeaveUI()
+                        usedLeave += 0.5f
+                        updateLeaveSummaryOnly()
                     } else {
                         Toast.makeText(context, "잔여 연차가 부족합니다.", Toast.LENGTH_SHORT).show()
                     }
@@ -1226,8 +1256,8 @@ class MainActivity : AppCompatActivity() {
 
                 btnUseDay.setOnClickListener {
                     if (totalLeave - usedLeave >= 1.0f) {
-                        prefs.edit().putFloat("used_leave", usedLeave + 1.0f).apply()
-                        refreshLeaveUI()
+                        usedLeave += 1.0f
+                        updateLeaveSummaryOnly()
                     } else {
                         Toast.makeText(context, "잔여 연차가 부족합니다.", Toast.LENGTH_SHORT).show()
                     }
@@ -1235,8 +1265,8 @@ class MainActivity : AppCompatActivity() {
 
                 btnCancelLeave.setOnClickListener {
                     if (usedLeave >= 0.5f) {
-                        prefs.edit().putFloat("used_leave", usedLeave - 0.5f).apply()
-                        refreshLeaveUI()
+                        usedLeave -= 0.5f
+                        updateLeaveSummaryOnly()
                     }
                 }
 
@@ -1244,15 +1274,16 @@ class MainActivity : AppCompatActivity() {
                     override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                     override fun onTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                     override fun afterTextChanged(s: Editable?) {
+                        if (isInternalTextChange) return
                         val input = s.toString().toFloatOrNull()
-                        if (input != null && input >= 0f) {
-                            prefs.edit().putFloat("total_leave", input).apply()
-                            refreshLeaveUI()
+                        if (input != null && input >= 0f && input != totalLeave) {
+                            totalLeave = input
+                            updateLeaveSummaryOnly()
                         }
                     }
                 })
 
-                refreshLeaveUI()
+                updateLeaveSummaryOnly()
                 addView(leaveCard)
             }
             addView(layout)
