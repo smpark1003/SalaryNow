@@ -1,6 +1,9 @@
 package com.example.salarynow
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -9,6 +12,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -17,6 +22,8 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import org.json.JSONObject
+import java.io.File
 import java.text.NumberFormat
 import java.util.*
 
@@ -39,10 +46,9 @@ class MainActivity : AppCompatActivity() {
     private fun calculateNetSalary(annualSalary: Long, severanceIncluded: Boolean): NetSalaryResult {
         val divisor = if (severanceIncluded) 13.0 else 12.0
         val monthlyGross = annualSalary / divisor
-        val nontaxable = 200000.0 // 식대 비과세 월 20만 원
+        val nontaxable = 200000.0
         val taxableMonthly = (monthlyGross - nontaxable).coerceAtLeast(0.0)
 
-        // 4대보험
         val pensionBase = taxableMonthly.coerceIn(390000.0, 6170000.0)
         val pension = pensionBase * 0.045
         val health = taxableMonthly * 0.03545
@@ -50,7 +56,6 @@ class MainActivity : AppCompatActivity() {
         val employment = taxableMonthly * 0.009
         val insuranceTotal = pension + health + care + employment
 
-        // 근로소득세 간이세액표 근사식
         val annualTaxable = taxableMonthly * 12.0
         val earnedIncomeDeduction = when {
             annualTaxable <= 5000000.0 -> annualTaxable * 0.7
@@ -60,7 +65,7 @@ class MainActivity : AppCompatActivity() {
             else -> 14750000.0 + (annualTaxable - 100000000.0) * 0.02
         }
         val incomeAfterDeduction = (annualTaxable - earnedIncomeDeduction).coerceAtLeast(0.0)
-        val taxBase = (incomeAfterDeduction - 1500000.0).coerceAtLeast(0.0) // 1인 기본공제
+        val taxBase = (incomeAfterDeduction - 1500000.0).coerceAtLeast(0.0)
 
         val annualTax = when {
             taxBase <= 14000000.0 -> taxBase * 0.06
@@ -95,12 +100,90 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    // 문서(Documents) 폴더 저장 함수
+    private fun backupToDocuments(context: Context, jsonStr: String): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val resolver = context.contentResolver
+                val uri = MediaStore.Files.getContentUri("external")
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, "salary_backup.json")
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/json")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS + "/URAPay")
+                }
+                val itemUri = resolver.insert(uri, values)
+                itemUri?.let {
+                    resolver.openOutputStream(it)?.use { os ->
+                        os.write(jsonStr.toByteArray(Charsets.UTF_8))
+                    }
+                    true
+                } ?: false
+            } else {
+                val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "URAPay")
+                if (!dir.exists()) dir.mkdirs()
+                val file = File(dir, "salary_backup.json")
+                file.writeText(jsonStr, Charsets.UTF_8)
+                true
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // 문서(Documents) 폴더 읽기 함수
+    private fun readFromDocuments(context: Context): String? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val resolver = context.contentResolver
+                val projection = arrayOf(MediaStore.MediaColumns._ID)
+                val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+                val selectionArgs = arrayOf("salary_backup.json", "%${Environment.DIRECTORY_DOCUMENTS}/URAPay%")
+                val cursor = resolver.query(
+                    MediaStore.Files.getContentUri("external"),
+                    projection,
+                    selection,
+                    selectionArgs,
+                    null
+                )
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+                        val contentUri = MediaStore.Files.getContentUri("external").buildUpon().appendPath(id.toString()).build()
+                        resolver.openInputStream(contentUri)?.use { stream ->
+                            return stream.bufferedReader().readText()
+                        }
+                    }
+                }
+                null
+            } else {
+                val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "URAPay/salary_backup.json")
+                if (file.exists()) file.readText(Charsets.UTF_8) else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         supportActionBar?.hide()
 
         val nf = NumberFormat.getNumberInstance(Locale.KOREA)
         val prefs = getSharedPreferences("SalaryPrefs", Context.MODE_PRIVATE)
+
+        // 앱 최초 실행 시 문서 폴더의 기존 백업 데이터 자동 복원
+        if (!prefs.contains("salary")) {
+            readFromDocuments(this)?.let { jsonStr ->
+                try {
+                    val obj = JSONObject(jsonStr)
+                    prefs.edit()
+                        .putFloat("salary", obj.optDouble("salary", 2600000.0).toFloat())
+                        .putFloat("total_leave", obj.optDouble("total_leave", 15.0).toFloat())
+                        .putFloat("used_leave", obj.optDouble("used_leave", 0.0).toFloat())
+                        .apply()
+                } catch (_: Exception) {}
+            }
+        }
 
         // ==========================================
         // 1. [급여 탭] 화면
@@ -117,7 +200,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(24), dp(48), dp(24), dp(36))
         }
 
-        // 1-1. 헤더 (이모티콘 제거, 핀테크 타이포그래피)
+        // 1-1. 헤더 (핀테크 타이포그래피)
         val headerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(10), 0, dp(24))
@@ -149,7 +232,7 @@ class MainActivity : AppCompatActivity() {
         headerLayout.addView(brandTitle)
         headerLayout.addView(brandSubtitle)
 
-        // 1-2. 급여 설정 카드 (실수령액 vs 연봉 선택형)
+        // 1-2. 급여 설정 카드
         val salaryCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(22), dp(20), dp(22))
@@ -167,7 +250,6 @@ class MainActivity : AppCompatActivity() {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
 
-        // 방식 선택 탭 (세그먼트 컨트롤)
         var isAnnualMode = false
         var isSeveranceIncludedInSalary = false
 
@@ -214,7 +296,7 @@ class MainActivity : AppCompatActivity() {
         segmentContainer.addView(btnModeNet)
         segmentContainer.addView(btnModeAnnual)
 
-        // [모드 A] 월 실수령액 직접 입력 컨테이너
+        // [모드 A] 월 실수령액 직접 입력
         val netInputContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -268,7 +350,7 @@ class MainActivity : AppCompatActivity() {
         netInputContainer.addView(netFieldBox)
         netInputContainer.addView(netPreviewText)
 
-        // [모드 B] 연봉(세전) 입력 컨테이너
+        // [모드 B] 연봉(세전) 입력
         val annualInputContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
@@ -310,7 +392,6 @@ class MainActivity : AppCompatActivity() {
         annualFieldBox.addView(annualSymbol)
         annualFieldBox.addView(annualSalaryInput)
 
-        // 퇴직금 포함 여부 선택 버튼 (Chips)
         val severanceContainer = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             val params = LinearLayout.LayoutParams(
@@ -359,7 +440,6 @@ class MainActivity : AppCompatActivity() {
         severanceContainer.addView(btnSevSeparate)
         severanceContainer.addView(btnSevIncluded)
 
-        // 연봉 자동계산 결과 요약 카드
         val annualResultCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(12))
@@ -475,7 +555,6 @@ class MainActivity : AppCompatActivity() {
             updateAnnualCalculations()
         }
 
-        // 천 단위 콤마 포맷터
         fun attachCommaFormatter(editText: EditText, onFormatted: (Long) -> Unit) {
             editText.addTextChangedListener(object : TextWatcher {
                 private var current = ""
@@ -519,7 +598,7 @@ class MainActivity : AppCompatActivity() {
         salaryCard.addView(netInputContainer)
         salaryCard.addView(annualInputContainer)
 
-        // 1-3. 스마트 근무 스케줄 카드 (이모티콘 제거)
+        // 1-3. 스마트 근무 스케줄 카드
         val scheduleCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(20), dp(20), dp(20))
@@ -556,6 +635,20 @@ class MainActivity : AppCompatActivity() {
         scheduleCard.addView(scheduleTitle)
         scheduleCard.addView(scheduleDesc)
 
+        // 문서 폴더 자동 백업 실행 함수
+        fun autoSaveBackup() {
+            val s = prefs.getFloat("salary", 2600000f)
+            val tl = prefs.getFloat("total_leave", 15.0f)
+            val ul = prefs.getFloat("used_leave", 0.0f)
+            val json = JSONObject().apply {
+                put("salary", s.toDouble())
+                put("total_leave", tl.toDouble())
+                put("used_leave", ul.toDouble())
+                put("backup_time", System.currentTimeMillis())
+            }
+            backupToDocuments(this, json.toString())
+        }
+
         // 1-4. 실행 버튼
         val startBtn = Button(this).apply {
             text = "자동 출퇴근 모드 실행"
@@ -584,6 +677,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 prefs.edit().putFloat("salary", finalNetSalary).apply()
+                autoSaveBackup()
                 SalaryService.scheduleNextWorkAlarm(this@MainActivity)
                 checkPermissionAndStartService()
             }
@@ -619,8 +713,10 @@ class MainActivity : AppCompatActivity() {
         scrollView.addView(mainLayout)
 
         // ==========================================
-        // 2. [도구 탭] 화면 ('연봉 실수령 계산기' 단독 배치)
+        // 2. [도구 탭] 화면 ('연봉 계산기' + '연차/반차 계산기')
         // ==========================================
+        var triggerLeaveRefresh: (() -> Unit)? = null
+
         val toolsView = ScrollView(this).apply {
             visibility = View.GONE
             setBackgroundColor(Color.parseColor("#F8FAFC"))
@@ -632,7 +728,6 @@ class MainActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(24), dp(48), dp(24), dp(36))
 
-                // 헤더
                 addView(TextView(context).apply {
                     text = "직장인 도구"
                     textSize = 30f
@@ -640,13 +735,13 @@ class MainActivity : AppCompatActivity() {
                     setTextColor(Color.parseColor("#0F172A"))
                 })
                 addView(TextView(context).apply {
-                    text = "연봉 및 세금 공제 상세 계산기"
+                    text = "직장 생활에 필요한 필수 도구 모음"
                     textSize = 14f
                     setTextColor(Color.parseColor("#64748B"))
                     setPadding(0, dp(4), 0, dp(24))
                 })
 
-                // 연봉 실수령 계산기 카드
+                // 도구 1: 연봉 실수령 계산기 카드
                 val calcCard = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(20), dp(22), dp(20), dp(22))
@@ -656,6 +751,19 @@ class MainActivity : AppCompatActivity() {
                         setStroke(dp(1), Color.parseColor("#E2E8F0"))
                     }
                 }
+
+                calcCard.addView(TextView(context).apply {
+                    text = "연봉 실수령 계산기"
+                    textSize = 18f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#0F172A"))
+                })
+                calcCard.addView(TextView(context).apply {
+                    text = "연봉 및 세금 공제 상세 계산"
+                    textSize = 12f
+                    setTextColor(Color.parseColor("#64748B"))
+                    setPadding(0, dp(2), 0, dp(14))
+                })
 
                 calcCard.addView(TextView(context).apply {
                     text = "희망/현재 연봉 (세전)"
@@ -700,7 +808,6 @@ class MainActivity : AppCompatActivity() {
                 calcInputBox.addView(calcSalaryInput)
                 calcCard.addView(calcInputBox)
 
-                // 퇴직금 조건 선택 버튼
                 var isCalcSeveranceIncluded = false
                 val calcSevContainer = LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -751,7 +858,6 @@ class MainActivity : AppCompatActivity() {
                 calcSevContainer.addView(btnCalcSevInc)
                 calcCard.addView(calcSevContainer)
 
-                // 실수령액 결과 하이라이트 박스
                 val highlightBox = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(18), dp(16), dp(18), dp(16))
@@ -789,7 +895,6 @@ class MainActivity : AppCompatActivity() {
                 highlightBox.addView(tvCalcSubSummary)
                 calcCard.addView(highlightBox)
 
-                // 세부 공제 내역 리스트
                 val detailContainer = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(14), dp(12), dp(14), dp(12))
@@ -831,7 +936,6 @@ class MainActivity : AppCompatActivity() {
 
                 calcCard.addView(detailContainer)
 
-                // 이 금액으로 내 급여 적용하기 버튼
                 var currentCalculatedNet: Long = 2868034L
 
                 val btnApplyToMySalary = Button(context).apply {
@@ -909,16 +1013,253 @@ class MainActivity : AppCompatActivity() {
 
                 btnApplyToMySalary.setOnClickListener {
                     prefs.edit().putFloat("salary", currentCalculatedNet.toFloat()).apply()
+                    autoSaveBackup()
                     netSalaryInput.setText(nf.format(currentCalculatedNet))
                     btnModeNet.performClick()
                     Toast.makeText(context, "월 실수령액 ₩${nf.format(currentCalculatedNet)}이 적용되었습니다.", Toast.LENGTH_SHORT).show()
                 }
+
+                // ---------------------------------------------------------
+                // 도구 2: 연차 · 반차 계산기 카드
+                // ---------------------------------------------------------
+                val leaveCard = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(20), dp(22), dp(20), dp(22))
+                    background = GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        cornerRadius = dp(18).toFloat()
+                        setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                    }
+                    val params = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = dp(20) }
+                    layoutParams = params
+                }
+
+                leaveCard.addView(TextView(context).apply {
+                    text = "연차 · 반차 계산기"
+                    textSize = 18f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#0F172A"))
+                })
+                leaveCard.addView(TextView(context).apply {
+                    text = "잔여 연차 관리 및 미사용 연차보상금 추정"
+                    textSize = 12f
+                    setTextColor(Color.parseColor("#64748B"))
+                    setPadding(0, dp(2), 0, dp(16))
+                })
+
+                val totalLeaveRow = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(16), dp(10), dp(16), dp(10))
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#F8FAFC"))
+                        cornerRadius = dp(12).toFloat()
+                        setStroke(dp(1), Color.parseColor("#CBD5E1"))
+                    }
+                }
+
+                totalLeaveRow.addView(TextView(context).apply {
+                    text = "총 부여 연차"
+                    textSize = 13f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#475569"))
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+
+                var totalLeave = prefs.getFloat("total_leave", 15.0f)
+                var usedLeave = prefs.getFloat("used_leave", 0.0f)
+
+                val etTotalLeave = EditText(context).apply {
+                    hint = "15.0"
+                    inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+                    textSize = 16f
+                    gravity = Gravity.END
+                    setTextColor(Color.parseColor("#0F172A"))
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    background = null
+                    setText(String.format(Locale.KOREA, "%.1f", totalLeave))
+                    layoutParams = LinearLayout.LayoutParams(dp(70), LinearLayout.LayoutParams.WRAP_CONTENT)
+                }
+                totalLeaveRow.addView(etTotalLeave)
+                totalLeaveRow.addView(TextView(context).apply {
+                    text = " 일"
+                    textSize = 14f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#0F172A"))
+                })
+                leaveCard.addView(totalLeaveRow)
+
+                val leaveHighlightBox = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(18), dp(16), dp(18), dp(16))
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#EFF6FF"))
+                        cornerRadius = dp(14).toFloat()
+                    }
+                    val params = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { setMargins(0, dp(14), 0, dp(14)) }
+                    layoutParams = params
+                }
+
+                leaveHighlightBox.addView(TextView(context).apply {
+                    text = "현재 잔여 연차"
+                    textSize = 12f
+                    setTextColor(Color.parseColor("#1E40AF"))
+                })
+
+                val tvRemainLeave = TextView(context).apply {
+                    textSize = 28f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#2563EB"))
+                    setPadding(0, dp(4), 0, dp(4))
+                }
+                leaveHighlightBox.addView(tvRemainLeave)
+
+                val tvLeaveSubInfo = TextView(context).apply {
+                    textSize = 12f
+                    setTextColor(Color.parseColor("#64748B"))
+                }
+                leaveHighlightBox.addView(tvLeaveSubInfo)
+                leaveCard.addView(leaveHighlightBox)
+
+                val buttonGroup = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    val params = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(12) }
+                    layoutParams = params
+                }
+
+                fun createActionButton(title: String, bgColor: String, textColor: String): Button {
+                    return Button(context).apply {
+                        text = title
+                        textSize = 12f
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                        setTextColor(Color.parseColor(textColor))
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor(bgColor))
+                            cornerRadius = dp(10).toFloat()
+                        }
+                        setPadding(0, dp(10), 0, dp(10))
+                    }
+                }
+
+                val btnUseHalf = createActionButton("+ 반차 (0.5일)", "#EFF6FF", "#2563EB").apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                }
+                val btnUseDay = createActionButton("+ 연차 (1.0일)", "#2563EB", "#FFFFFF").apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                }
+                val btnCancelLeave = createActionButton("차감 취소 (-0.5일)", "#F1F5F9", "#64748B").apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f)
+                }
+
+                buttonGroup.addView(btnUseHalf)
+                buttonGroup.addView(btnUseDay)
+                buttonGroup.addView(btnCancelLeave)
+                leaveCard.addView(buttonGroup)
+
+                val allowanceBox = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(14), dp(12), dp(14), dp(12))
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#F8FAFC"))
+                        cornerRadius = dp(10).toFloat()
+                        setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                    }
+                }
+
+                val tvAllowanceLabel = TextView(context).apply {
+                    text = "미사용 연차 보상금 예상액"
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#64748B"))
+                }
+                val tvAllowanceValue = TextView(context).apply {
+                    textSize = 15f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#0F172A"))
+                    setPadding(0, dp(2), 0, 0)
+                }
+                allowanceBox.addView(tvAllowanceLabel)
+                allowanceBox.addView(tvAllowanceValue)
+                leaveCard.addView(allowanceBox)
+
+                fun refreshLeaveUI() {
+                    totalLeave = prefs.getFloat("total_leave", 15.0f)
+                    usedLeave = prefs.getFloat("used_leave", 0.0f)
+                    val remain = (totalLeave - usedLeave).coerceAtLeast(0.0f)
+                    val usedPercent = if (totalLeave > 0f) (usedLeave / totalLeave * 100).toInt() else 0
+
+                    etTotalLeave.setText(String.format(Locale.KOREA, "%.1f", totalLeave))
+                    tvRemainLeave.text = "${String.format(Locale.KOREA, "%.1f", remain)}일 남음"
+                    tvLeaveSubInfo.text = "사용 ${String.format(Locale.KOREA, "%.1f", usedLeave)}일 / 소진율 ${usedPercent}%"
+
+                    val currentSal = prefs.getFloat("salary", 2600000f).toDouble()
+                    val dailyWage = (currentSal / 209.0) * 8.0
+                    val estimatedPayout = (remain * dailyWage).toLong()
+
+                    tvAllowanceValue.text = "약 ₩ ${nf.format(estimatedPayout)} (1일 8시간 기준)"
+
+                    prefs.edit()
+                        .putFloat("total_leave", totalLeave)
+                        .putFloat("used_leave", usedLeave)
+                        .apply()
+                    autoSaveBackup()
+                }
+
+                triggerLeaveRefresh = { refreshLeaveUI() }
+
+                btnUseHalf.setOnClickListener {
+                    if (totalLeave - usedLeave >= 0.5f) {
+                        prefs.edit().putFloat("used_leave", usedLeave + 0.5f).apply()
+                        refreshLeaveUI()
+                    } else {
+                        Toast.makeText(context, "잔여 연차가 부족합니다.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                btnUseDay.setOnClickListener {
+                    if (totalLeave - usedLeave >= 1.0f) {
+                        prefs.edit().putFloat("used_leave", usedLeave + 1.0f).apply()
+                        refreshLeaveUI()
+                    } else {
+                        Toast.makeText(context, "잔여 연차가 부족합니다.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                btnCancelLeave.setOnClickListener {
+                    if (usedLeave >= 0.5f) {
+                        prefs.edit().putFloat("used_leave", usedLeave - 0.5f).apply()
+                        refreshLeaveUI()
+                    }
+                }
+
+                etTotalLeave.addTextChangedListener(object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun afterTextChanged(s: Editable?) {
+                        val input = s.toString().toFloatOrNull()
+                        if (input != null && input >= 0f) {
+                            prefs.edit().putFloat("total_leave", input).apply()
+                            refreshLeaveUI()
+                        }
+                    }
+                })
+
+                refreshLeaveUI()
+                addView(leaveCard)
             }
             addView(layout)
         }
 
         // ==========================================
-        // 3. [설정 탭] 화면
+        // 3. [설정 탭] 화면 (데이터 백업 및 복원 포함)
         // ==========================================
         val settingsView = ScrollView(this).apply {
             visibility = View.GONE
@@ -939,6 +1280,7 @@ class MainActivity : AppCompatActivity() {
                     setPadding(0, 0, 0, dp(24))
                 })
 
+                // 카드 1: 기본 근무 안내 카드
                 addView(LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(dp(20), dp(22), dp(20), dp(22))
@@ -947,6 +1289,12 @@ class MainActivity : AppCompatActivity() {
                         cornerRadius = dp(18).toFloat()
                         setStroke(dp(1), Color.parseColor("#E2E8F0"))
                     }
+                    val params = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(16) }
+                    layoutParams = params
+
                     addView(TextView(context).apply {
                         text = "기본 근무 정보"
                         textSize = 16f
@@ -964,6 +1312,183 @@ class MainActivity : AppCompatActivity() {
                         setPadding(0, dp(8), 0, 0)
                     })
                 })
+
+                // 카드 2: 데이터 영구 백업 및 복원 카드
+                val backupCard = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(20), dp(22), dp(20), dp(22))
+                    background = GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        cornerRadius = dp(18).toFloat()
+                        setStroke(dp(1), Color.parseColor("#E2E8F0"))
+                    }
+                }
+
+                backupCard.addView(TextView(context).apply {
+                    text = "데이터 백업 및 복원"
+                    textSize = 16f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                    setTextColor(Color.parseColor("#0F172A"))
+                })
+                backupCard.addView(TextView(context).apply {
+                    text = "내 파일 > Documents > URAPay 폴더에 자동 백업됩니다. 앱을 삭제 후 재설치해도 데이터를 그대로 복원할 수 있습니다."
+                    textSize = 13f
+                    setTextColor(Color.parseColor("#64748B"))
+                    setLineSpacing(dp(3).toFloat(), 1f)
+                    setPadding(0, dp(6), 0, dp(14))
+                })
+
+                val btnRow = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    val params = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(8) }
+                    layoutParams = params
+                }
+
+                fun createSmallButton(title: String, isPrimary: Boolean): Button {
+                    return Button(context).apply {
+                        text = title
+                        textSize = 12f
+                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                        setTextColor(if (isPrimary) Color.WHITE else Color.parseColor("#2563EB"))
+                        background = GradientDrawable().apply {
+                            setColor(if (isPrimary) Color.parseColor("#2563EB") else Color.parseColor("#EFF6FF"))
+                            cornerRadius = dp(10).toFloat()
+                            if (!isPrimary) setStroke(dp(1), Color.parseColor("#BFDBFE"))
+                        }
+                        setPadding(0, dp(10), 0, dp(10))
+                    }
+                }
+
+                val btnManualBackup = createSmallButton("문서 폴더로 백업", true).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+                }
+                val btnManualRestore = createSmallButton("문서 폴더에서 복원", false).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) }
+                }
+
+                btnRow.addView(btnManualBackup)
+                btnRow.addView(btnManualRestore)
+                backupCard.addView(btnRow)
+
+                val btnClipboardBackup = Button(context).apply {
+                    text = "클립보드로 백업 텍스트 복사"
+                    textSize = 12f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                    setTextColor(Color.parseColor("#475569"))
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#F1F5F9"))
+                        cornerRadius = dp(10).toFloat()
+                    }
+                    val params = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp(6) }
+                    layoutParams = params
+                }
+
+                val btnClipboardRestore = Button(context).apply {
+                    text = "클립보드에서 텍스트로 복원"
+                    textSize = 12f
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                    setTextColor(Color.parseColor("#475569"))
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#F1F5F9"))
+                        cornerRadius = dp(10).toFloat()
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                }
+
+                backupCard.addView(btnClipboardBackup)
+                backupCard.addView(btnClipboardRestore)
+                addView(backupCard)
+
+                btnManualBackup.setOnClickListener {
+                    val s = prefs.getFloat("salary", 2600000f)
+                    val tl = prefs.getFloat("total_leave", 15.0f)
+                    val ul = prefs.getFloat("used_leave", 0.0f)
+                    val json = JSONObject().apply {
+                        put("salary", s.toDouble())
+                        put("total_leave", tl.toDouble())
+                        put("used_leave", ul.toDouble())
+                        put("backup_time", System.currentTimeMillis())
+                    }
+                    val ok = backupToDocuments(context, json.toString())
+                    if (ok) {
+                        Toast.makeText(context, "Documents/URAPay 폴더에 백업되었습니다.", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "백업 파일 저장에 실패했습니다.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                btnManualRestore.setOnClickListener {
+                    val jsonStr = readFromDocuments(context)
+                    if (jsonStr != null) {
+                        try {
+                            val obj = JSONObject(jsonStr)
+                            val sal = obj.optDouble("salary", 2600000.0).toFloat()
+                            val tl = obj.optDouble("total_leave", 15.0).toFloat()
+                            val ul = obj.optDouble("used_leave", 0.0).toFloat()
+                            prefs.edit()
+                                .putFloat("salary", sal)
+                                .putFloat("total_leave", tl)
+                                .putFloat("used_leave", ul)
+                                .apply()
+                            netSalaryInput.setText(nf.format(sal.toLong()))
+                            triggerLeaveRefresh?.invoke()
+                            Toast.makeText(context, "문서 폴더에서 데이터를 복원했습니다.", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "백업 파일 형식이 올바르지 않습니다.", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(context, "Documents/URAPay에 저장된 백업 파일이 없습니다.", Toast.LENGTH_LONG).show()
+                    }
+                }
+
+                btnClipboardBackup.setOnClickListener {
+                    val s = prefs.getFloat("salary", 2600000f)
+                    val tl = prefs.getFloat("total_leave", 15.0f)
+                    val ul = prefs.getFloat("used_leave", 0.0f)
+                    val json = JSONObject().apply {
+                        put("salary", s.toDouble())
+                        put("total_leave", tl.toDouble())
+                        put("used_leave", ul.toDouble())
+                    }
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("URAPay_Backup", json.toString()))
+                    Toast.makeText(context, "백업 데이터가 클립보드에 복사되었습니다.", Toast.LENGTH_LONG).show()
+                }
+
+                btnClipboardRestore.setOnClickListener {
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = clipboard.primaryClip
+                    if (clip != null && clip.itemCount > 0) {
+                        val text = clip.getItemAt(0).text.toString()
+                        try {
+                            val obj = JSONObject(text)
+                            val sal = obj.optDouble("salary", 2600000.0).toFloat()
+                            val tl = obj.optDouble("total_leave", 15.0).toFloat()
+                            val ul = obj.optDouble("used_leave", 0.0).toFloat()
+                            prefs.edit()
+                                .putFloat("salary", sal)
+                                .putFloat("total_leave", tl)
+                                .putFloat("used_leave", ul)
+                                .apply()
+                            netSalaryInput.setText(nf.format(sal.toLong()))
+                            triggerLeaveRefresh?.invoke()
+                            Toast.makeText(context, "클립보드에서 데이터를 복원했습니다.", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "클립보드 내용이 올바른 백업 데이터 형식이 아닙니다.", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(context, "클립보드가 비어 있습니다.", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
             addView(layout)
         }
@@ -1001,14 +1526,13 @@ class MainActivity : AppCompatActivity() {
         val tabTools = createTabItem(android.R.drawable.ic_menu_agenda, "도구", false)
         val tabSettings = createTabItem(android.R.drawable.ic_menu_preferences, "설정", false)
 
-        // 반투명 블러 느낌의 프로스티드 글래스 배경 (iOS Dock 스타일)
         val floatingDock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(dp(6), dp(4), dp(6), dp(4))
             elevation = dp(16).toFloat()
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#E6FFFFFF")) // 90% 투명도 글래스모피즘
+                setColor(Color.parseColor("#E6FFFFFF"))
                 cornerRadius = dp(32).toFloat()
                 setStroke(dp(1), Color.parseColor("#40CBD5E1"))
             }
@@ -1021,7 +1545,6 @@ class MainActivity : AppCompatActivity() {
         val views = listOf(scrollView, toolsView, settingsView)
         val tabPairs = listOf(tabSalary.second, tabTools.second, tabSettings.second)
 
-        // 무빙(Moving) 슬라이드 & 페이드 화면 전환 함수
         fun switchTab(target: Int) {
             if (currentTab == target) return
 
@@ -1051,7 +1574,6 @@ class MainActivity : AppCompatActivity() {
                 .setDuration(220)
                 .start()
 
-            // 탭 시각 효과 업데이트
             for (i in tabPairs.indices) {
                 val isSelected = (i == target)
                 val pair = tabPairs[i]
@@ -1067,9 +1589,6 @@ class MainActivity : AppCompatActivity() {
         tabTools.first.setOnClickListener { switchTab(1) }
         tabSettings.first.setOnClickListener { switchTab(2) }
 
-        // ==========================================
-        // 5. 루트 레이아웃 (3개 화면 + 플로팅 독)
-        // ==========================================
         val rootLayout = FrameLayout(this).apply {
             addView(scrollView)
             addView(toolsView)
