@@ -37,7 +37,7 @@ class SalaryService : Service() {
         // 209시간 기준 초당/시급 계산
         val hourlyWage = (salary / 209.0).toLong()
         val perSec = (salary / 209.0) / 3600.0
-        val dailySalary = perSec * 8 * 3600 // 하루 8시간 기준 급여
+        val dailySalary = perSec * 8 * 3600
 
         updateRunnable = object : Runnable {
             override fun run() {
@@ -51,9 +51,8 @@ class SalaryService : Service() {
                 val sec1200 = 12 * 3600           // 12:00 점심 시작
                 val sec1300 = 13 * 3600           // 13:00 오후 시작
                 val sec1800 = 18 * 3600           // 18:00 퇴근
-                val totalWorkSec = 8 * 3600.0     // 8시간 = 28,800초
+                val totalWorkSec = 8 * 3600.0
 
-                // 이번 달 1일부터 어제까지의 평일(근무일) 누적 계산
                 val currentDay = now.get(Calendar.DAY_OF_MONTH)
                 var pastWeekdays = 0
                 val tempCal = Calendar.getInstance().apply {
@@ -69,7 +68,7 @@ class SalaryService : Service() {
                 val pastMonthEarned = pastWeekdays * dailySalary
 
                 when {
-                    // 1. [08:30 ~ 08:59] 출근 준비 & 대기 모드 (게이지 0%, 상세 리포트 표시)
+                    // 1. [08:30 ~ 08:59] 출근 준비 & 대기 모드
                     totalSecOfDay < sec0900 -> {
                         val waitMinutes = (sec0900 - totalSecOfDay) / 60
                         val monthEarned = pastMonthEarned.toLong()
@@ -78,10 +77,10 @@ class SalaryService : Service() {
                         updateRichNotification(
                             title = "오늘 ₩ 0 (0%)",
                             progress = 0,
-                            line1 = "💵 오늘 급여 : ₩ 0 (0.0%)",
-                            line2 = "💳 이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
-                            line3 = "⏱ 시작 대기 : ${waitMinutes + 1}분 후 09:00 정규 근무 시작",
-                            line4 = "⚡ 초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
+                            line1 = "오늘 급여 : ₩ 0 (0.0%)",
+                            line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
+                            line3 = "시작 대기 : ${waitMinutes + 1}분 후 09:00 정규 근무 시작",
+                            line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
                         )
                     }
 
@@ -90,7 +89,7 @@ class SalaryService : Service() {
                         val workedSec = totalSecOfDay - sec0900
                         val currentEarned = (workedSec * perSec).toLong()
                         val progressPct = (workedSec / totalWorkSec) * 100.0
-                        val remainSec = sec1800 - totalSecOfDay - 3600 // 점심 1시간 제외
+                        val remainSec = sec1800 - totalSecOfDay - 3600
                         val remainHour = remainSec / 3600
                         val remainMin = (remainSec % 3600) / 60
 
@@ -102,14 +101,14 @@ class SalaryService : Service() {
                         updateRichNotification(
                             title = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}%)",
                             progress = progressInt,
-                            line1 = "💵 오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}%)",
-                            line2 = "💳 이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
-                            line3 = "⏱ 남은 시간 : ${remainHour}시간 ${remainMin}분 남음",
-                            line4 = "⚡ 초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
+                            line1 = "오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}%)",
+                            line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
+                            line3 = "남은 시간 : ${remainHour}시간 ${remainMin}분 남음",
+                            line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
                         )
                     }
 
-                    // 3. [12:00 ~ 12:59] 점심시간 (오전 3시간분 고정)
+                    // 3. [12:00 ~ 12:59] 점심시간
                     totalSecOfDay in sec1200 until sec1300 -> {
                         val morningSec = 3 * 3600
                         val morningEarned = (morningSec * perSec).toLong()
@@ -126,10 +125,10 @@ class SalaryService : Service() {
                         updateRichNotification(
                             title = "오늘 ₩ ${nf.format(morningEarned)} (${progressInt}%)",
                             progress = progressInt,
-                            line1 = "💵 오늘 급여 : ₩ ${nf.format(morningEarned)} (${progressStr}%)",
-                            line2 = "💳 이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
-                            line3 = "🍱 점심시간 : 푹 쉬세요! (13:00 오후 근무 재개)",
-                            line4 = "⚡ 초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
+                            line1 = "오늘 급여 : ₩ ${nf.format(morningEarned)} (${progressStr}%)",
+                            line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
+                            line3 = "점심시간 : 13:00 오후 근무 재개 예정",
+                            line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
                         )
                     }
 
@@ -152,10 +151,10 @@ class SalaryService : Service() {
                         updateRichNotification(
                             title = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}%)",
                             progress = progressInt,
-                            line1 = "💵 오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}%)",
-                            line2 = "💳 이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
-                            line3 = "⏱ 남은 시간 : ${remainHour}시간 ${remainMin}분 남음",
-                            line4 = "⚡ 초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
+                            line1 = "오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}%)",
+                            line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
+                            line3 = "남은 시간 : ${remainHour}시간 ${remainMin}분 남음",
+                            line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
                         )
                     }
 
@@ -189,7 +188,6 @@ class SalaryService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // 4줄 상세 리포트 레이아웃
         val inboxStyle = NotificationCompat.InboxStyle()
             .addLine(line1)
             .addLine(line2)
@@ -200,13 +198,13 @@ class SalaryService : Service() {
             .setSmallIcon(R.drawable.ic_salary)
             .setContentTitle(title)
             .setContentText(line1)
-            .setProgress(100, progress, false) // 실시간 진행률 게이지 바
-            .setStyle(inboxStyle)               // 4줄 상세 리포트
+            .setProgress(100, progress, false)
+            .setStyle(inboxStyle)
             .setColor(Color.parseColor("#2563EB"))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(pendingIntent)
-            .addAction(0, "💳 총 월급 보기", pendingIntent) // 바로가기 버튼
+            .addAction(0, "총 월급 보기", pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
@@ -217,8 +215,8 @@ class SalaryService : Service() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val finalNoti = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_salary)
-            .setContentTitle("🎉 오늘 하루도 고생 많으셨습니다!")
-            .setContentText("오늘 정산 급여(실수령): ₩${nf.format(dailySalary)} 적립 완료 (퇴근)")
+            .setContentTitle("오늘 근무가 종료되었습니다.")
+            .setContentText("오늘 정산 급여: ₩${nf.format(dailySalary)} 적립 완료 (퇴근)")
             .setColor(Color.parseColor("#2563EB"))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
