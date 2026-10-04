@@ -19,11 +19,58 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      - name: Setup Fixed Keystore
+      - name: Restore True Fixed Keystore
         run: |
           mkdir -p ~/.android
-          echo "yura_pay_fixed_keystore" > ~/.android/seed.txt
-          keytool -genkeypair -alias androiddebugkey -keypass android -keystore ~/.android/debug.keystore -storepass android -dname "CN=URA Pay,O=URA,C=KR" -keyalg RSA -keysize 2048 -validity 10000
+          cat << 'EOF' | base64 -d > ~/.android/debug.keystore
+          MIIKZgIBAzCCChAGCSqGSIb3DQEHAaCCCgEEggn9MIIJ+TCCBcAGCSqGSIb3DQEHAaCCBbEEggWt
+          MIIFqTCCBaUGCyqGSIb3DQEMCgECoIIFQDCCBTwwZgYJKoZIhvcNAQUNMFkwOAYJKoZIhvcNAQUM
+          MCsEFAW5NOu07Y0LnVUU56PfnnfDk4iTAgInEAIBIDAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQB
+          KgQQFPrRa9t/kj7ciw2Y2D5XdgSCBNDbGCradtxXhmVQTtD+uvpe8NbNxMAcxwXAnOQ/7hAh7Jbk
+          qOV1kcFy71W5oNfI9L5367M+e0wNH5HirouCxD08pHma3GCSRk3C1fynVDkTo8dqf5AaWiwKxJky
+          oX1OxVMd98LQ3Yok1ntVRb7GgJAAuoJOlcMDXDZ+CawfSnNZEnhKaKWpuTUS42Hk3HA12e2CJfpZ
+          J7h0EsWMBBEavXTzEMRyAG9ci6wYVId8GOqduizp0RvPU972KoVXbnPEbBBHkDaA1TD6xGxN4pqL
+          kICGxhDrOlKfsQU4NnTTx7mR3b+sZDMEdGX/SyqS1eeXByNNSoNKrosngA3XCaFKpt2fUyxhE5S4
+          75XClw7rXaoGzph1UZsIUu3LN0m8G6p8zhtUb9MworqXs8GzE82V063AxTXFJpDNglHDwUsoNWzy
+          hVvltzR2w1z0X1w1GvP6PxJAMD/aaBoXWAQ4L3wBa+13/j5df7Ytp0XfH/+8jbqVVztM20vohtSJ
+          rJUkkWHnm7t618LYJKbPLo5Yom20BT9n44QgqQs0LSCk8A329ssYJ9e5VIm4ddpeJvgYv8tznokS
+          Ubo0J+LMiFV1fEAjqGkTMAWWfWXMaw064yXcuEN2Be/x6lFd1iIiSKfLXHkXg0QBeuRLrKMj8Ry7
+          xf3KBkUr02mUkJMwqM9knycNpOVU5jViEnTywUWkJLSdCIyyIpsK9M/jSQkVJBoj9V+zyCf8VnWc
+          KY6RryS0onqnYk9LuWQ6ZmLSS5PH9iVVaSrfHzSlF5QTrmsqjYCUnhG+hJlPeSqiT/U9QeFMgZOQ
+          kEOPTdwAhG7W/ecLR9BOyJLscnS9P6EWusZBMWRaZpY/enkehZoAL6Yeu4gwPEoqss3mCJGzDOJz
+          q9QyIf7MyGH30B5Jra/4qEBSqVlFe/bQ4wrldGfrrJupIZJeuwkAmuKd6a1P0iiTj8pOY4Df1LPC
+          etDTYDUlUBuGdQ1tDnPsek87L86v5mFGXmvhaX+xkxR7IdvYSSaljzPb943kpHs4QFEcEIc8UP2X
+          fKgFynUEZRDHNtb5wR7hVut4imA/TOm9cLOVBbBJSfVDJHg69Y7mc80/3Iklul1v8A7z3s9eIXyn
+          zODWUqQ7IRAUtZTI7YyjxXoO9cQB/yJLx4bkYqIErAeBut/Gvl4oY4ccjiJNL4F606syuougXgqO
+          22/xrJbTSQ5djJwiVpYjyJ7O13K9tX3jt+9XHkntJO/DD0FO11yF4/opJn3XzUjtdqo6lZARlIK/
+          dO3vX3OnI1qB5jHzNdP1Xk3RwkeJvxhF7PEOYE9/OYwA/+ujH/sCSeJrPOb5b4UWWC5Gazf5+Bru
+          HIE3b8yaY6NwsWu4MPvu1Mau4PZzdCtnD7HJkz+8PhO2HFjmfnRR347CihqX8lhNH8GKFwKcCfyK
+          xyjFssIjB2LA25kq/01nP6a7EZJDpvlvoYCmxfYdV/w5+EUYwCUpJqDUMS4WyYOE42E9zlvrT93T
+          qlrWJQaOwbQNGKUpzKwppQhEF4/7LoXAAV3+C2Zb/HLA43L3hgyBhv+0C4iIBzbISVwVQOPVKNjs
+          wozrth4V9fhD9oWhzqVoarbu+XUJnPKzSoXneRYYFBxZm0T0Sqk41MnIAhxsyTxsaDt1gjkMoe3e
+          0zFSMC0GCSqGSIb3DQEJFDEgHh4AYQBuAGQAcgBvAGkAZABkAGUAYgB1AGcAawBlAHkwIQYJKoZI
+          hvcNAQkVMRQEElRpbWUgMTc5MTEwMzMzODE3NTCCBDEGCSqGSIb3DQEHBqCCBCIwggQeAgEAMIIE
+          FwYJKoZIhvcNAQcBMGYGCSqGSIb3DQEFDTBZMDgGCSqGSIb3DQEFDDArBBShFTtWjPj26v0lSCSX
+          TuTudChDRQICJxACASAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEOxsFFR7RqH5rybPTcog
+          3xuAggOgbtTtJAgoNuIVJxwmpzEckrNZsEQq/tzTqnOX1OpfR236A7OTEKCu+1tmvGB5RnlIX3qy
+          sLaYQC2jkU3yhkONUEpV8bKPHU06LHbKbMhyhMHX7nZm/0gW1h7tNyPxqPbTVjnv9+3JqB/t/WCy
+          IXgonMgJDfqh5E9vw+H2wIMwqtVrwxV03iY5QcBB01ab9PsExXGjWCzXwbWSxtO5agWHTHUnrsUe
+          0WoLX5MzVWavIpWRfly5MP59BNw52YeIBzO+N5vPu6Qk0+P3tj5XFIFXWBSPTHJdWDbCvOAE5Wa2
+          TFqkCa9yYXpXc5NJ181I6yF5tZy7q33eLaEPyLSiPSsWWB/gcnVW5ejnDWnYFMhH9k4keQrIc78n
+          3VpV3/3QylH+JAq0Qn+p6TrMe196by0dKkm5cfOlOTzNkAvuxWw3MlF8QRhnDW+2at4ENzFGlCkH
+          hEIiz25TBw+ZUyDDCB8vSQwavL1r97VdrJdy/2vEwQ16y3qv+9U531x89Z+BefXxLVhpBRajjDDZ
+          kAM6a3anvslZVeiM+iiQKsQQpIy5TwIN7AnshYNh1khc/2z2fuml4LJEAmuCTQLwPoSDV8/vnGCq
+          N4XFzhpcWVW/8wheht7GQScsuC2q4vbklRyEdapxECFnKcyn8pvEfCzifiuE6F9i3a1bWwCdT9M4
+          tlFuEct5xwr6zAcH24t4KByg/usz6VRSyrQAioX/ZcUzz+nLutUxrA7isO1PxfAmo9vnDsriM8Bk
+          rTFQYTHMAhellg250d2ptMb/ATErVkrVw7A4plNmPF8bBeCWaYylrY5N9MKhKnRft+qtMZqxuiqR
+          f8HNtwyWai97K3ztuvzFxdDQwrBZS27xg048+E/9HeYkflR3fFW/oe8A98/QCUzGzMKadkVP5Cx7
+          fBrQwoZlBybLHA+P0ogUA5mz821ZMrOxhx/7lywJ3UOJAxopGhJKalv4SON0pf17Bn76cgBJx6x0
+          RZWXwECfrL6g/fHt94epRpv6KFnJqIkMQJFD/U+vvgq7/Tp1GUv9+4jQ9UtJKFVjNfxwVpTVFO5T
+          zfxRQ7malLdefnaDuXh9uC1yF85VG0GXUWJuJVmfFUgFj4Xj/xPlEQvETS5nyrdCZB8HtevJ4q3g
+          WFPeMbdbM/dlbVOFXH7Yya6tsdqSWxXqDz3KPB7csgdCQ8skt8Pzz8F15rVpRdPPyZvPzt0iMc7J
+          whXBAzmhm9hBUkvrG1T2Lb/nH3S4dzBNMDEwDQYJYIZIAWUDBAIBBQAEIGTc4NA/zyyBx0vBk4kj
+          0e4xy8kh4Lwa7CO6JnE6k1W5BBSlt6SZviCdiCj58z+JXRC4+7t05gICJxA=
+          EOF
 
       - name: Build with Gradle
         run: gradle assembleDebug --stacktrace
