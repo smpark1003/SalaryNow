@@ -76,14 +76,11 @@ class SalaryService : Service() {
                         val monthPct = String.format(Locale.KOREA, "%.1f", (monthEarned / salary) * 100)
 
                         updateRichNotification(
-                            title = "오늘 ₩ 0 (0% 근무함)",
-                            progress = 0,
-                            shortPillText = "09:00대기",
-                            shortSubText = "근무 준비",
-                            line1 = "오늘 급여 : ₩ 0 (0.0% 근무함)",
-                            line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
-                            line3 = "시작 대기 : ${waitMinutes + 1}분 후 09:00 정규 근무 시작",
-                            line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
+                            cardTitle = "오늘 ₩ 0 (0% 근무함)",
+                            cardDesc = "09:00 정규 근무 시작 대기 중 (${waitMinutes + 1}분 남음)\n이달 누적: ₩ ${nf.format(monthEarned)} (${monthPct}%) • 시급 ₩ ${nf.format(hourlyWage)}",
+                            nowbarPrimary = "09:00대기",
+                            nowbarSecondary = "근무 준비",
+                            progress = 0
                         )
                     }
 
@@ -99,17 +96,13 @@ class SalaryService : Service() {
                         val monthEarned = (pastMonthEarned + currentEarned).toLong()
                         val monthPct = String.format(Locale.KOREA, "%.1f", (monthEarned / salary) * 100)
                         val progressInt = progressPct.toInt().coerceIn(0, 100)
-                        val progressStr = String.format(Locale.KOREA, "%.1f", progressPct)
 
                         updateRichNotification(
-                            title = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}% 근무함)",
-                            progress = progressInt,
-                            shortPillText = "₩${nf.format(currentEarned)}",
-                            shortSubText = "${progressInt}% 근무함",
-                            line1 = "오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}% 근무함)",
-                            line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
-                            line3 = "남은 시간 : ${remainHour}시간 ${remainMin}분 남음",
-                            line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
+                            cardTitle = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}% 근무함)",
+                            cardDesc = "퇴근까지 ${remainHour}시간 ${remainMin}분 남음 (점심 1시간 제외)\n이달 누적 ₩ ${nf.format(monthEarned)} (${monthPct}%) • 초당 ₩ ${String.format(Locale.KOREA, "%.2f", perSec)}",
+                            nowbarPrimary = "₩${nf.format(currentEarned)}",
+                            nowbarSecondary = "${progressInt}% 근무함",
+                            progress = progressInt
                         )
                     }
 
@@ -125,17 +118,13 @@ class SalaryService : Service() {
                         val monthEarned = (pastMonthEarned + morningEarned).toLong()
                         val monthPct = String.format(Locale.KOREA, "%.1f", (monthEarned / salary) * 100)
                         val progressInt = progressPct.toInt().coerceIn(0, 100)
-                        val progressStr = String.format(Locale.KOREA, "%.1f", progressPct)
 
                         updateRichNotification(
-                            title = "오늘 ₩ ${nf.format(morningEarned)} (${progressInt}% 근무함)",
-                            progress = progressInt,
-                            shortPillText = "점심시간",
-                            shortSubText = "13시 재개",
-                            line1 = "오늘 급여 : ₩ ${nf.format(morningEarned)} (${progressStr}% 근무함)",
-                            line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
-                            line3 = "점심시간 : 13:00 오후 근무 재개 예정",
-                            line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
+                            cardTitle = "오늘 ₩ ${nf.format(morningEarned)} (${progressInt}% 근무함)",
+                            cardDesc = "점심시간 누적 정지 (13:00 오후 근무 재개)\n퇴근까지 ${remainHour}시간 ${remainMin}분 • 이달 누적 ₩ ${nf.format(monthEarned)} (${monthPct}%)",
+                            nowbarPrimary = "점심시간",
+                            nowbarSecondary = "13시 재개",
+                            progress = progressInt
                         )
                     }
 
@@ -153,17 +142,13 @@ class SalaryService : Service() {
                         val monthEarned = (pastMonthEarned + currentEarned).toLong()
                         val monthPct = String.format(Locale.KOREA, "%.1f", (monthEarned / salary) * 100)
                         val progressInt = progressPct.toInt().coerceIn(0, 100)
-                        val progressStr = String.format(Locale.KOREA, "%.1f", progressPct)
 
                         updateRichNotification(
-                            title = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}% 근무함)",
-                            progress = progressInt,
-                            shortPillText = "₩${nf.format(currentEarned)}",
-                            shortSubText = "${progressInt}% 근무함",
-                            line1 = "오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}% 근무함)",
-                            line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
-                            line3 = "남은 시간 : ${remainHour}시간 ${remainMin}분 남음",
-                            line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
+                            cardTitle = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}% 근무함)",
+                            cardDesc = "퇴근까지 ${remainHour}시간 ${remainMin}분 남음\n이달 누적 ₩ ${nf.format(monthEarned)} (${monthPct}%) • 초당 ₩ ${String.format(Locale.KOREA, "%.2f", perSec)}",
+                            nowbarPrimary = "₩${nf.format(currentEarned)}",
+                            nowbarSecondary = "${progressInt}% 근무함",
+                            progress = progressInt
                         )
                     }
 
@@ -184,14 +169,11 @@ class SalaryService : Service() {
     }
 
     private fun updateRichNotification(
-        title: String,
-        progress: Int,
-        shortPillText: String,
-        shortSubText: String,
-        line1: String,
-        line2: String,
-        line3: String,
-        line4: String
+        cardTitle: String,
+        cardDesc: String,
+        nowbarPrimary: String,
+        nowbarSecondary: String,
+        progress: Int
     ) {
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
@@ -199,31 +181,28 @@ class SalaryService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // 삼성 One UI 7 Now Bar 전용 플래그
+        // ⭐ 잠금화면 Now Bar 캡슐과 알림창 카드 데이터를 분리 주입
         val extras = Bundle().apply {
             putBoolean("com.samsung.android.support.ongoing_activity", true)
             putInt("android.ongoingActivityNoti.style", 1)
-            putString("android.ongoingActivityNoti.primaryInfo", shortPillText)
-            putString("android.ongoingActivityNoti.secondaryInfo", shortSubText)
-            putString("android.ongoingActivityNoti.nowbarPrimaryInfo", shortPillText)
-            putString("android.ongoingActivityNoti.nowbarSecondaryInfo", shortSubText)
+            // 알림창 카드용: 꽉 찬 멀티라인 상세 리포트
+            putString("android.ongoingActivityNoti.primaryInfo", cardTitle)
+            putString("android.ongoingActivityNoti.secondaryInfo", cardDesc)
+            // 잠금화면 Now Bar 캡슐용: 7자 이내 초간결 데이터
+            putString("android.ongoingActivityNoti.nowbarPrimaryInfo", nowbarPrimary)
+            putString("android.ongoingActivityNoti.nowbarSecondaryInfo", nowbarSecondary)
             putString("android.ongoingActivityNoti.chipExpandedText", "유라 급여")
+            putInt("android.ongoingActivityNoti.chipBgColor", Color.parseColor("#2563EB"))
             putInt("android.ongoingActivityNoti.actionType", 1)
         }
 
-        val inboxStyle = NotificationCompat.InboxStyle()
-            .addLine(line1)
-            .addLine(line2)
-            .addLine(line3)
-            .addLine(line4)
-
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_salary)
-            .setContentTitle(title)
-            .setContentText(line1)
-            .setSubText(shortPillText)
+            .setContentTitle(cardTitle)
+            .setContentText(cardDesc)
+            .setSubText(nowbarPrimary)
             .setProgress(100, progress, false)
-            .setStyle(inboxStyle)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(cardDesc))
             .setColor(Color.parseColor("#2563EB"))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
