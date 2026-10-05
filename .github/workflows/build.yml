@@ -72,6 +72,31 @@ jobs:
           0e4xy8kh4Lwa7CO6JnE6k1W5BBSlt6SZviCdiCj58z+JXRC4+7t05gICJxA=
           EOF
 
+      # ⭐ 빌드 직전, 앱 로고 PNG 이미지의 모서리를 자동으로 둥글게 깎아주는 단계
+      - name: Round App Icon Corners
+        run: |
+          python3 -c "
+          import os
+          from PIL import Image, ImageDraw
+
+          for root, dirs, files in os.walk('app/src/main/res'):
+              for fname in files:
+                  if fname.endswith('.png'):
+                      fpath = os.path.join(root, fname)
+                      try:
+                          img = Image.open(fpath).convert('RGBA')
+                          w, h = img.size
+                          r = int(min(w, h) * 0.20)
+                          mask = Image.new('L', (w, h), 0)
+                          draw = ImageDraw.Draw(mask)
+                          draw.rounded_rectangle([(0, 0), (w - 1, h - 1)], radius=r, fill=255)
+                          img.putalpha(mask)
+                          img.save(fpath, 'PNG')
+                          print(f'Successfully rounded: {fpath}')
+                      except Exception as e:
+                          print(f'Skipped {fpath}: {e}')
+          "
+
       - name: Build with Gradle
         run: gradle assembleDebug --stacktrace
 
