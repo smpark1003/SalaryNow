@@ -10,13 +10,13 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@drawable/ic_salary"
+        android:icon="@mipmap/ic_launcher"
         android:label="유라 급여"
-        android:roundIcon="@drawable/ic_salary"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
-        <!-- ⭐ 삼성 One UI 7 Now Bar (Live Notifications / Ongoing Activity) 공식 지원 선언 -->
+        <!-- ⭐ 삼성 One UI 7 Now Bar (Ongoing Activity) 공식 지원 선언 -->
         <meta-data
             android:name="com.samsung.android.support.ongoing_activity"
             android:value="true" />
