@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -77,6 +78,8 @@ class SalaryService : Service() {
                         updateRichNotification(
                             title = "오늘 ₩ 0 (0%)",
                             progress = 0,
+                            shortPillText = "09:00대기",
+                            shortSubText = "근무 준비",
                             line1 = "오늘 급여 : ₩ 0 (0.0%)",
                             line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
                             line3 = "시작 대기 : ${waitMinutes + 1}분 후 09:00 정규 근무 시작",
@@ -101,6 +104,8 @@ class SalaryService : Service() {
                         updateRichNotification(
                             title = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}%)",
                             progress = progressInt,
+                            shortPillText = "₩${nf.format(currentEarned)}",
+                            shortSubText = "${progressInt}% 적립",
                             line1 = "오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}%)",
                             line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
                             line3 = "남은 시간 : ${remainHour}시간 ${remainMin}분 남음",
@@ -125,6 +130,8 @@ class SalaryService : Service() {
                         updateRichNotification(
                             title = "오늘 ₩ ${nf.format(morningEarned)} (${progressInt}%)",
                             progress = progressInt,
+                            shortPillText = "점심시간",
+                            shortSubText = "13시 재개",
                             line1 = "오늘 급여 : ₩ ${nf.format(morningEarned)} (${progressStr}%)",
                             line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
                             line3 = "점심시간 : 13:00 오후 근무 재개 예정",
@@ -151,6 +158,8 @@ class SalaryService : Service() {
                         updateRichNotification(
                             title = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}%)",
                             progress = progressInt,
+                            shortPillText = "₩${nf.format(currentEarned)}",
+                            shortSubText = "${progressInt}% 적립",
                             line1 = "오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}%)",
                             line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
                             line3 = "남은 시간 : ${remainHour}시간 ${remainMin}분 남음",
@@ -177,6 +186,8 @@ class SalaryService : Service() {
     private fun updateRichNotification(
         title: String,
         progress: Int,
+        shortPillText: String,
+        shortSubText: String,
         line1: String,
         line2: String,
         line3: String,
@@ -188,6 +199,18 @@ class SalaryService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        // ⭐ 삼성 One UI 7 Now Bar (Live Notifications / Ongoing Activity) 전용 메타데이터 주입
+        val extras = Bundle().apply {
+            putBoolean("com.samsung.android.support.ongoing_activity", true)
+            putInt("android.ongoingActivityNoti.style", 1) // 1: 실시간 활동 스타일
+            putString("android.ongoingActivityNoti.primaryInfo", shortPillText)
+            putString("android.ongoingActivityNoti.secondaryInfo", shortSubText)
+            putString("android.ongoingActivityNoti.nowbarPrimaryInfo", shortPillText)
+            putString("android.ongoingActivityNoti.nowbarSecondaryInfo", shortSubText)
+            putString("android.ongoingActivityNoti.chipExpandedText", "유라 급여")
+            putInt("android.ongoingActivityNoti.actionType", 1)
+        }
+
         val inboxStyle = NotificationCompat.InboxStyle()
             .addLine(line1)
             .addLine(line2)
@@ -198,11 +221,14 @@ class SalaryService : Service() {
             .setSmallIcon(R.drawable.ic_salary)
             .setContentTitle(title)
             .setContentText(line1)
+            .setSubText(shortPillText) // 안드로이드 표준 상단바 칩 텍스트 (7자 이내)
             .setProgress(100, progress, false)
             .setStyle(inboxStyle)
             .setColor(Color.parseColor("#2563EB"))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .addExtras(extras) // 삼성 Now Bar 전용 Extras 주입
             .setContentIntent(pendingIntent)
             .addAction(0, "총 월급 보기", pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
