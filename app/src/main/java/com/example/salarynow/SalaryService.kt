@@ -3,8 +3,6 @@ package com.example.salarynow
 import android.app.*
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -12,7 +10,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import java.text.NumberFormat
 import java.util.*
 
@@ -21,29 +18,12 @@ class SalaryService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val nf = NumberFormat.getNumberInstance(Locale.KOREA)
     private var updateRunnable: Runnable? = null
-    private var cachedLargeIcon: Bitmap? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        cachedLargeIcon = getColoredBitmap(this, R.drawable.ic_salary)
-    }
-
-    private fun getColoredBitmap(context: Context, drawableId: Int): Bitmap? {
-        return try {
-            val drawable = ContextCompat.getDrawable(context, drawableId) ?: return null
-            val width = drawable.intrinsicWidth.coerceAtLeast(128)
-            val height = drawable.intrinsicHeight.coerceAtLeast(128)
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-            drawable.setBounds(0, 0, canvas.width, canvas.height)
-            drawable.draw(canvas)
-            bitmap
-        } catch (e: Exception) {
-            null
-        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -219,10 +199,10 @@ class SalaryService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // ⭐ 삼성 One UI 7 Now Bar (Live Notifications / Ongoing Activity) 필수 메타데이터 주입
+        // 삼성 One UI 7 Now Bar 전용 플래그
         val extras = Bundle().apply {
             putBoolean("com.samsung.android.support.ongoing_activity", true)
-            putInt("android.ongoingActivityNoti.style", 1) // 필수: Now Bar 활성화 트리거
+            putInt("android.ongoingActivityNoti.style", 1)
             putString("android.ongoingActivityNoti.primaryInfo", shortPillText)
             putString("android.ongoingActivityNoti.secondaryInfo", shortSubText)
             putString("android.ongoingActivityNoti.nowbarPrimaryInfo", shortPillText)
@@ -237,7 +217,7 @@ class SalaryService : Service() {
             .addLine(line3)
             .addLine(line4)
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_salary)
             .setContentTitle(title)
             .setContentText(line1)
@@ -248,16 +228,13 @@ class SalaryService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .addExtras(extras) // 삼성 Now Bar 전용 Extras 주입
+            .addExtras(extras)
             .setContentIntent(pendingIntent)
             .addAction(0, "총 월급 보기", pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
 
-        cachedLargeIcon?.let {
-            builder.setLargeIcon(it)
-        }
-
-        startForeground(NOTIFICATION_ID, builder.build())
+        startForeground(NOTIFICATION_ID, notification)
     }
 
     private fun showFinalNotification(dailySalary: Long) {
@@ -269,9 +246,6 @@ class SalaryService : Service() {
             .setColor(Color.parseColor("#2563EB"))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .apply {
-                cachedLargeIcon?.let { setLargeIcon(it) }
-            }
             .build()
 
         manager.notify(FINAL_NOTI_ID, finalNoti)
