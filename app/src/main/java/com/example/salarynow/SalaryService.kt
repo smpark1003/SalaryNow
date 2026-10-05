@@ -35,7 +35,6 @@ class SalaryService : Service() {
         val prefs = getSharedPreferences("SalaryPrefs", Context.MODE_PRIVATE)
         val salary = prefs.getFloat("salary", 2600000f).toDouble()
 
-        // 209시간 기준 초당/시급 계산
         val hourlyWage = (salary / 209.0).toLong()
         val perSec = (salary / 209.0) / 3600.0
         val dailySalary = perSec * 8 * 3600
@@ -80,6 +79,7 @@ class SalaryService : Service() {
                             cardDesc = "09:00 정규 근무 시작 대기 중 (${waitMinutes + 1}분 남음)\n이달 누적: ₩ ${nf.format(monthEarned)} (${monthPct}%) • 시급 ₩ ${nf.format(hourlyWage)}",
                             nowbarPrimary = "09:00대기",
                             nowbarSecondary = "근무 준비",
+                            chipText = "09:00대기/${waitMinutes + 1}분남음",
                             progress = 0
                         )
                     }
@@ -96,12 +96,14 @@ class SalaryService : Service() {
                         val monthEarned = (pastMonthEarned + currentEarned).toLong()
                         val monthPct = String.format(Locale.KOREA, "%.1f", (monthEarned / salary) * 100)
                         val progressInt = progressPct.toInt().coerceIn(0, 100)
+                        val timeStr = String.format(Locale.KOREA, "%02d:%02d", remainHour, remainMin)
 
                         updateRichNotification(
                             cardTitle = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}% 근무함)",
                             cardDesc = "퇴근까지 ${remainHour}시간 ${remainMin}분 남음 (점심 1시간 제외)\n이달 누적 ₩ ${nf.format(monthEarned)} (${monthPct}%) • 초당 ₩ ${String.format(Locale.KOREA, "%.2f", perSec)}",
                             nowbarPrimary = "₩${nf.format(currentEarned)}",
                             nowbarSecondary = "${progressInt}% 근무함",
+                            chipText = "₩${nf.format(currentEarned)}/${timeStr}남음",
                             progress = progressInt
                         )
                     }
@@ -114,6 +116,7 @@ class SalaryService : Service() {
                         val remainSec = sec1800 - sec1300
                         val remainHour = remainSec / 3600
                         val remainMin = (remainSec % 3600) / 60
+                        val remainLunchMin = (sec1300 - totalSecOfDay) / 60
 
                         val monthEarned = (pastMonthEarned + morningEarned).toLong()
                         val monthPct = String.format(Locale.KOREA, "%.1f", (monthEarned / salary) * 100)
@@ -124,6 +127,7 @@ class SalaryService : Service() {
                             cardDesc = "점심시간 누적 정지 (13:00 오후 근무 재개)\n퇴근까지 ${remainHour}시간 ${remainMin}분 • 이달 누적 ₩ ${nf.format(monthEarned)} (${monthPct}%)",
                             nowbarPrimary = "점심시간",
                             nowbarSecondary = "13시 재개",
+                            chipText = "₩${nf.format(morningEarned)}/점심${remainLunchMin + 1}분",
                             progress = progressInt
                         )
                     }
@@ -142,12 +146,14 @@ class SalaryService : Service() {
                         val monthEarned = (pastMonthEarned + currentEarned).toLong()
                         val monthPct = String.format(Locale.KOREA, "%.1f", (monthEarned / salary) * 100)
                         val progressInt = progressPct.toInt().coerceIn(0, 100)
+                        val timeStr = String.format(Locale.KOREA, "%02d:%02d", remainHour, remainMin)
 
                         updateRichNotification(
                             cardTitle = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}% 근무함)",
                             cardDesc = "퇴근까지 ${remainHour}시간 ${remainMin}분 남음\n이달 누적 ₩ ${nf.format(monthEarned)} (${monthPct}%) • 초당 ₩ ${String.format(Locale.KOREA, "%.2f", perSec)}",
                             nowbarPrimary = "₩${nf.format(currentEarned)}",
                             nowbarSecondary = "${progressInt}% 근무함",
+                            chipText = "₩${nf.format(currentEarned)}/${timeStr}남음",
                             progress = progressInt
                         )
                     }
@@ -173,6 +179,7 @@ class SalaryService : Service() {
         cardDesc: String,
         nowbarPrimary: String,
         nowbarSecondary: String,
+        chipText: String,
         progress: Int
     ) {
         val intent = Intent(this, MainActivity::class.java)
@@ -181,17 +188,18 @@ class SalaryService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // ⭐ 잠금화면 Now Bar 캡슐과 알림창 카드 데이터를 분리 주입
+        // ⭐ 삼성 One UI 7 Now Bar (잠금화면/상단바 캡슐) & 알림 카드 분리 주입
         val extras = Bundle().apply {
             putBoolean("com.samsung.android.support.ongoing_activity", true)
             putInt("android.ongoingActivityNoti.style", 1)
-            // 알림창 카드용: 꽉 찬 멀티라인 상세 리포트
+            // 1. 알림창 카드용 (상세 리포트)
             putString("android.ongoingActivityNoti.primaryInfo", cardTitle)
             putString("android.ongoingActivityNoti.secondaryInfo", cardDesc)
-            // 잠금화면 Now Bar 캡슐용: 7자 이내 초간결 데이터
+            // 2. 잠금화면 하단 Now Bar 캡슐용 (초간결 데이터)
             putString("android.ongoingActivityNoti.nowbarPrimaryInfo", nowbarPrimary)
             putString("android.ongoingActivityNoti.nowbarSecondaryInfo", nowbarSecondary)
-            putString("android.ongoingActivityNoti.chipExpandedText", "유라 급여")
+            // 3. ⭐ 2번째 사진 상단바 실시간 알약 칩 텍스트 (예: ₩39,737/04:45남음)
+            putString("android.ongoingActivityNoti.chipExpandedText", chipText)
             putInt("android.ongoingActivityNoti.chipBgColor", Color.parseColor("#2563EB"))
             putInt("android.ongoingActivityNoti.actionType", 1)
         }
@@ -200,7 +208,7 @@ class SalaryService : Service() {
             .setSmallIcon(R.drawable.ic_salary)
             .setContentTitle(cardTitle)
             .setContentText(cardDesc)
-            .setSubText(nowbarPrimary)
+            .setSubText(chipText) // 안드로이드 표준 상단바 칩 동기화
             .setProgress(100, progress, false)
             .setStyle(NotificationCompat.BigTextStyle().bigText(cardDesc))
             .setColor(Color.parseColor("#2563EB"))
