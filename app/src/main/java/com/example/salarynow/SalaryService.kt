@@ -3,6 +3,8 @@ package com.example.salarynow
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -10,6 +12,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import java.text.NumberFormat
 import java.util.*
 
@@ -18,12 +21,30 @@ class SalaryService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val nf = NumberFormat.getNumberInstance(Locale.KOREA)
     private var updateRunnable: Runnable? = null
+    private var cachedLargeIcon: Bitmap? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        // 원래의 선명한 컬러 로고를 비트맵으로 캐싱 (하얘짐 방지)
+        cachedLargeIcon = getColoredBitmap(this, R.drawable.ic_salary)
+    }
+
+    private fun getColoredBitmap(context: Context, drawableId: Int): Bitmap? {
+        return try {
+            val drawable = ContextCompat.getDrawable(context, drawableId) ?: return null
+            val width = drawable.intrinsicWidth.coerceAtLeast(128)
+            val height = drawable.intrinsicHeight.coerceAtLeast(128)
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, canvas.width, canvas.height)
+            drawable.draw(canvas)
+            bitmap
+        } catch (e: Exception) {
+            null
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -76,11 +97,11 @@ class SalaryService : Service() {
                         val monthPct = String.format(Locale.KOREA, "%.1f", (monthEarned / salary) * 100)
 
                         updateRichNotification(
-                            title = "오늘 ₩ 0 (0%)",
+                            title = "오늘 ₩ 0 (0% 근무함)",
                             progress = 0,
                             shortPillText = "09:00대기",
                             shortSubText = "근무 준비",
-                            line1 = "오늘 급여 : ₩ 0 (0.0%)",
+                            line1 = "오늘 급여 : ₩ 0 (0.0% 근무함)",
                             line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
                             line3 = "시작 대기 : ${waitMinutes + 1}분 후 09:00 정규 근무 시작",
                             line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
@@ -102,11 +123,11 @@ class SalaryService : Service() {
                         val progressStr = String.format(Locale.KOREA, "%.1f", progressPct)
 
                         updateRichNotification(
-                            title = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}%)",
+                            title = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}% 근무함)",
                             progress = progressInt,
                             shortPillText = "₩${nf.format(currentEarned)}",
-                            shortSubText = "${progressInt}% 적립",
-                            line1 = "오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}%)",
+                            shortSubText = "${progressInt}% 근무함",
+                            line1 = "오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}% 근무함)",
                             line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
                             line3 = "남은 시간 : ${remainHour}시간 ${remainMin}분 남음",
                             line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
@@ -128,11 +149,11 @@ class SalaryService : Service() {
                         val progressStr = String.format(Locale.KOREA, "%.1f", progressPct)
 
                         updateRichNotification(
-                            title = "오늘 ₩ ${nf.format(morningEarned)} (${progressInt}%)",
+                            title = "오늘 ₩ ${nf.format(morningEarned)} (${progressInt}% 근무함)",
                             progress = progressInt,
                             shortPillText = "점심시간",
                             shortSubText = "13시 재개",
-                            line1 = "오늘 급여 : ₩ ${nf.format(morningEarned)} (${progressStr}%)",
+                            line1 = "오늘 급여 : ₩ ${nf.format(morningEarned)} (${progressStr}% 근무함)",
                             line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
                             line3 = "점심시간 : 13:00 오후 근무 재개 예정",
                             line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
@@ -156,11 +177,11 @@ class SalaryService : Service() {
                         val progressStr = String.format(Locale.KOREA, "%.1f", progressPct)
 
                         updateRichNotification(
-                            title = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}%)",
+                            title = "오늘 ₩ ${nf.format(currentEarned)} (${progressInt}% 근무함)",
                             progress = progressInt,
                             shortPillText = "₩${nf.format(currentEarned)}",
-                            shortSubText = "${progressInt}% 적립",
-                            line1 = "오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}%)",
+                            shortSubText = "${progressInt}% 근무함",
+                            line1 = "오늘 급여 : ₩ ${nf.format(currentEarned)} (${progressStr}% 근무함)",
                             line2 = "이달 누적 : ₩ ${nf.format(monthEarned)} (${monthPct}%)",
                             line3 = "남은 시간 : ${remainHour}시간 ${remainMin}분 남음",
                             line4 = "초당 수령 : ₩ ${String.format(Locale.KOREA, "%.2f", perSec)} (시급 ₩ ${nf.format(hourlyWage)})"
@@ -199,16 +220,13 @@ class SalaryService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // ⭐ 삼성 One UI 7 Now Bar (Live Notifications / Ongoing Activity) 전용 메타데이터 주입
+        // ⭐ 삼성 Now Bar 전용 데이터 (알림창 레이아웃을 찌그러뜨리지 않도록 style 태그 제외)
         val extras = Bundle().apply {
             putBoolean("com.samsung.android.support.ongoing_activity", true)
-            putInt("android.ongoingActivityNoti.style", 1) // 1: 실시간 활동 스타일
             putString("android.ongoingActivityNoti.primaryInfo", shortPillText)
             putString("android.ongoingActivityNoti.secondaryInfo", shortSubText)
             putString("android.ongoingActivityNoti.nowbarPrimaryInfo", shortPillText)
             putString("android.ongoingActivityNoti.nowbarSecondaryInfo", shortSubText)
-            putString("android.ongoingActivityNoti.chipExpandedText", "유라 급여")
-            putInt("android.ongoingActivityNoti.actionType", 1)
         }
 
         val inboxStyle = NotificationCompat.InboxStyle()
@@ -217,24 +235,28 @@ class SalaryService : Service() {
             .addLine(line3)
             .addLine(line4)
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_salary)
             .setContentTitle(title)
             .setContentText(line1)
-            .setSubText(shortPillText) // 안드로이드 표준 상단바 칩 텍스트 (7자 이내)
+            .setSubText(shortPillText)
             .setProgress(100, progress, false)
             .setStyle(inboxStyle)
             .setColor(Color.parseColor("#2563EB"))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .addExtras(extras) // 삼성 Now Bar 전용 Extras 주입
+            .addExtras(extras)
             .setContentIntent(pendingIntent)
             .addAction(0, "총 월급 보기", pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
 
-        startForeground(NOTIFICATION_ID, notification)
+        // 컬러 URA 원형 로고 적용 (하얗게 변하는 현상 방지)
+        cachedLargeIcon?.let {
+            builder.setLargeIcon(it)
+        }
+
+        startForeground(NOTIFICATION_ID, builder.build())
     }
 
     private fun showFinalNotification(dailySalary: Long) {
@@ -246,6 +268,9 @@ class SalaryService : Service() {
             .setColor(Color.parseColor("#2563EB"))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .apply {
+                cachedLargeIcon?.let { setLargeIcon(it) }
+            }
             .build()
 
         manager.notify(FINAL_NOTI_ID, finalNoti)
