@@ -72,9 +72,10 @@ jobs:
           0e4xy8kh4Lwa7CO6JnE6k1W5BBSlt6SZviCdiCj58z+JXRC4+7t05gICJxA=
           EOF
 
-      # ⭐ 빌드 직전, 앱 로고 PNG 이미지의 모서리를 자동으로 둥글게 깎아주는 단계
+      # ⭐ Pillow 설치 후 앱 로고 모서리를 둥글게 가공
       - name: Round App Icon Corners
         run: |
+          python3 -m pip install Pillow --break-system-packages || pip install Pillow
           python3 -c "
           import os
           from PIL import Image, ImageDraw
