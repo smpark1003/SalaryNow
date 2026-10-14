@@ -88,7 +88,7 @@ class SalaryService : Service() {
                 val sec1200 = 12 * 3600            // 12:00 점심시간 시작
                 val sec1300 = 13 * 3600            // 13:00 오후 근무 시작
                 val sec1800 = 18 * 3600            // 18:00 정규 퇴근 시간
-                val sec1830 = 18 * 3600 + 30 * 60  // 18:30 30분 초과 자동 종료 한계선
+                val sec1830 = 18 * 3600 + 30 * 60  // 18:30 30분 초과 자동 종료
                 val totalWorkSec = 8 * 3600.0
 
                 val paydayInfo = PaydayCalculator.calculate(now)
@@ -108,19 +108,20 @@ class SalaryService : Service() {
                         )
                     }
 
-                    // 2. [08:30 ~ 08:59] 출근시간 30분 전 카운트다운
+                    // 2. [08:30 ~ 08:59] 출근 30분 전 카운트다운
                     totalSecOfDay in sec0830 until sec0900 -> {
                         val remainSec = sec0900 - totalSecOfDay
                         val m = remainSec / 60
                         val s = remainSec % 60
-                        val timeStr = "${m}분 ${s}초"
+                        val timerStr = String.format(Locale.KOREA, "%02d:%02d", m, s)
+                        val fullStr = "${m}분 ${s}초"
 
                         updateRichNotification(
                             cardTitle = "근무 시작 전 · 09:00 출근 예정",
-                            cardDesc = "· 현재 상태: 출근 준비 및 근무 대기\n· 잔여 시간: 정규 근무 시작까지 ${timeStr} 남음\n· 오늘 일정: 오전 09:00-12:00 | 점심 12:00-13:00 | 오후 13:00-18:00\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay}일)",
-                            nowbarPrimary = "근무시작 ${timeStr} 남음",
-                            nowbarSecondary = "09:00 정규 근무 시작",
-                            chipText = "출근 ${String.format(Locale.KOREA, "%02d:%02d", m, s)}",
+                            cardDesc = "· 현재 상태: 출근 준비 및 근무 대기\n· 잔여 시간: 정규 근무 시작까지 ${fullStr} 남음\n· 오늘 일정: 오전 09:00-12:00 | 점심 12:00-13:00 | 오후 13:00-18:00\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay}일)",
+                            nowbarPrimary = "근무시작 ${timerStr} 남음",
+                            nowbarSecondary = "09:00 정규 시작",
+                            chipText = "출근 ${timerStr}",
                             actionTitle = "앱 종료",
                             actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
                             progress = 0
@@ -135,15 +136,17 @@ class SalaryService : Service() {
                         val progressPct = ((workedSec / totalWorkSec) * 100.0).coerceIn(0.0, 100.0)
                         val progressInt = progressPct.toInt()
 
-                        val offStr = formatHms(offRemainSec)
-                        val lunchStr = formatHms(lunchRemainSec)
+                        val offFull = formatHmsFull(offRemainSec)
+                        val lunchFull = formatHmsFull(lunchRemainSec)
+                        val offTimer = formatTimerHms(offRemainSec)
+                        val lunchTimer = formatTimerHms(lunchRemainSec)
 
                         updateRichNotification(
                             cardTitle = "오전 근무 진행 중 · ${progressInt}% 진행",
-                            cardDesc = "· 퇴근 카운트다운: 정규 퇴근(18:00)까지 ${offStr} 남음\n· 점심 카운트다운: 점심시간(12:00)까지 ${lunchStr} 남음\n· 오전 근무시간: 09:00 - 12:00 (총 3시간)\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay}일)",
-                            nowbarPrimary = "퇴근까지 ${offStr} 남음",
-                            nowbarSecondary = "점심시간까지 ${lunchStr} 남음",
-                            chipText = "퇴근 ${formatHmsShort(offRemainSec)}",
+                            cardDesc = "· 퇴근 카운트다운: 정규 퇴근(18:00)까지 ${offFull} 남음\n· 점심 카운트다운: 점심시간(12:00)까지 ${lunchFull} 남음\n· 오전 근무시간: 09:00 - 12:00 (총 3시간)\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay}일)",
+                            nowbarPrimary = "퇴근까지 ${offTimer}",
+                            nowbarSecondary = "점심까지 ${lunchTimer}",
+                            chipText = "퇴근 ${offTimer}",
                             actionTitle = "퇴근하기",
                             actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
                             progress = progressInt
@@ -156,15 +159,17 @@ class SalaryService : Service() {
                         val resumeRemainSec = sec1300 - totalSecOfDay
                         val progressInt = (((3 * 3600) / totalWorkSec) * 100.0).toInt()
 
-                        val offStr = formatHms(offRemainSec)
-                        val resumeStr = formatHms(resumeRemainSec)
+                        val offFull = formatHmsFull(offRemainSec)
+                        val resumeFull = formatHmsFull(resumeRemainSec)
+                        val offTimer = formatTimerHms(offRemainSec)
+                        val resumeTimer = formatTimerHms(resumeRemainSec)
 
                         updateRichNotification(
                             cardTitle = "점심시간 진행 중 · 누적 정지",
-                            cardDesc = "· 복귀 카운트다운: 사무실 복귀(13:00)까지 ${resumeStr} 남음\n· 퇴근 카운트다운: 정규 퇴근(18:00)까지 ${offStr} 남음\n· 오후 근무시간: 13:00 - 18:00 (총 5시간)\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay}일)",
-                            nowbarPrimary = "퇴근까지 ${offStr} 남음",
-                            nowbarSecondary = "사무실 복귀까지 ${resumeStr} 남음",
-                            chipText = "복귀 ${formatHmsShort(resumeRemainSec)}",
+                            cardDesc = "· 복귀 카운트다운: 사무실 복귀(13:00)까지 ${resumeFull} 남음\n· 퇴근 카운트다운: 정규 퇴근(18:00)까지 ${offFull} 남음\n· 오후 근무시간: 13:00 - 18:00 (총 5시간)\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay}일)",
+                            nowbarPrimary = "퇴근까지 ${offTimer}",
+                            nowbarSecondary = "복귀까지 ${resumeTimer}",
+                            chipText = "복귀 ${resumeTimer}",
                             actionTitle = "퇴근하기",
                             actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
                             progress = progressInt
@@ -178,14 +183,15 @@ class SalaryService : Service() {
                         val progressPct = ((workedSec / totalWorkSec) * 100.0).coerceIn(0.0, 100.0)
                         val progressInt = progressPct.toInt()
 
-                        val offStr = formatHms(offRemainSec)
+                        val offFull = formatHmsFull(offRemainSec)
+                        val offTimer = formatTimerHms(offRemainSec)
 
                         updateRichNotification(
                             cardTitle = "오후 근무 진행 중 · ${progressInt}% 진행",
-                            cardDesc = "· 퇴근 카운트다운: 정규 퇴근(18:00)까지 ${offStr} 남음\n· 당일 누적 근무: ${formatHms(workedSec)} 완료 (${String.format(Locale.KOREA, "%.1f", progressPct)}%)\n· 다음 월급일: ${paydayInfo.dateString} 지급 예정\n· 급여 카운트다운: 월급날까지 ${paydayInfo.dDay}일 남음",
-                            nowbarPrimary = "퇴근까지 ${offStr} 남음",
+                            cardDesc = "· 퇴근 카운트다운: 정규 퇴근(18:00)까지 ${offFull} 남음\n· 당일 누적 근무: ${formatHmsFull(workedSec)} 완료 (${String.format(Locale.KOREA, "%.1f", progressPct)}%)\n· 다음 월급일: ${paydayInfo.dateString} 지급 예정\n· 급여 카운트다운: 월급날까지 ${paydayInfo.dDay}일 남음",
+                            nowbarPrimary = "퇴근까지 ${offTimer}",
                             nowbarSecondary = "월급날까지 ${paydayInfo.dDay}일 남음",
-                            chipText = "퇴근 ${formatHmsShort(offRemainSec)}",
+                            chipText = "퇴근 ${offTimer}",
                             actionTitle = "퇴근하기",
                             actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
                             progress = progressInt
@@ -195,10 +201,10 @@ class SalaryService : Service() {
                     // 6. [18:00 이후] 퇴근시간 초과 및 연장 근무 분기
                     else -> {
                         val overtimeSec = totalSecOfDay - sec1800
-                        val overtimeStr = formatHms(overtimeSec)
+                        val overtimeFull = formatHmsFull(overtimeSec)
+                        val overtimeTimer = formatTimerHms(overtimeSec)
 
                         if (!isOvertimeMode) {
-                            // 30분 동안 연장 근무 버튼을 누르지 않은 경우: 18:30 자동 종료
                             if (totalSecOfDay >= sec1830) {
                                 showShutdownNotification("정규 근무 종료 후 30분이 경과하여 퇴근 타이머를 자동 종료합니다.")
                                 scheduleNextWorkAlarm(this@SalaryService)
@@ -211,22 +217,21 @@ class SalaryService : Service() {
 
                             updateRichNotification(
                                 cardTitle = "정규 퇴근 시간 경과 · 연장 대기",
-                                cardDesc = "· 초과 근무 시간: 정규 퇴근시간 기준 ${overtimeStr} 지남\n· 자동 종료 안내: 연장 근무 미등록 시 18:30 자동 종료 (${autoCloseMin}분 남음)\n· 연장 근무 등록: 계속 근무하려면 하단 [연장 근무]를 누르세요.\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay}일)",
-                                nowbarPrimary = "퇴근시간 ${overtimeStr} 지남",
+                                cardDesc = "· 초과 근무 시간: 정규 퇴근시간 기준 ${overtimeFull} 지남\n· 자동 종료 안내: 연장 근무 미등록 시 18:30 자동 종료 (${autoCloseMin}분 남음)\n· 연장 근무 등록: 계속 근무하려면 하단 [연장 근무]를 누르세요.\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay}일)",
+                                nowbarPrimary = "퇴근 경과 +${overtimeTimer}",
                                 nowbarSecondary = "30분 후 자동 종료",
-                                chipText = "초과 +${formatHmsShort(overtimeSec)}",
+                                chipText = "초과 +${overtimeTimer}",
                                 actionTitle = "연장 근무",
                                 actionIntent = getActionPendingIntent(ACTION_START_OVERTIME),
                                 progress = 100
                             )
                         } else {
-                            // 연장 근무 모드 활성화: 수동 종료 시까지 나우바 영구 유지
                             updateRichNotification(
                                 cardTitle = "연장 근무 진행 중",
-                                cardDesc = "· 연장 근무 시간: 정규 퇴근시간(18:00) 기준 ${overtimeStr} 지남\n· 상태: 연장 근무 활성화 (수동 종료 전까지 유지)\n· 종료 안내: 퇴근 시 하단 [연장 근무 종료]를 누르면 종료됩니다.\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay}일)",
-                                nowbarPrimary = "퇴근시간 ${overtimeStr} 지남",
+                                cardDesc = "· 연장 근무 시간: 정규 퇴근시간(18:00) 기준 ${overtimeFull} 지남\n· 상태: 연장 근무 활성화 (수동 종료 전까지 유지)\n· 종료 안내: 퇴근 시 하단 [연장 근무 종료]를 누르면 종료됩니다.\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay}일)",
+                                nowbarPrimary = "퇴근 경과 +${overtimeTimer}",
                                 nowbarSecondary = "연장 근무 진행 중",
-                                chipText = "연장 +${formatHmsShort(overtimeSec)}",
+                                chipText = "연장 +${overtimeTimer}",
                                 actionTitle = "연장 근무 종료",
                                 actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
                                 progress = 100
@@ -241,18 +246,8 @@ class SalaryService : Service() {
         handler.post(updateRunnable!!)
     }
 
-    private fun formatHms(sec: Int): String {
-        val h = sec / 3600
-        val m = (sec % 3600) / 60
-        val s = sec % 60
-        return if (h > 0) {
-            "${h}시간 ${m}분 ${s}초"
-        } else {
-            "${m}분 ${s}초"
-        }
-    }
-
-    private fun formatHmsShort(sec: Int): String {
+    // 나우바 캡슐용 시:분:초 디지털 포맷 (폭이 좁아도 잘리지 않음)
+    private fun formatTimerHms(sec: Int): String {
         val h = sec / 3600
         val m = (sec % 3600) / 60
         val s = sec % 60
@@ -260,6 +255,18 @@ class SalaryService : Service() {
             String.format(Locale.KOREA, "%02d:%02d:%02d", h, m, s)
         } else {
             String.format(Locale.KOREA, "%02d:%02d", m, s)
+        }
+    }
+
+    // 자세히 보기(알림창 카드)용 한글 풀텍스트 포맷
+    private fun formatHmsFull(sec: Int): String {
+        val h = sec / 3600
+        val m = (sec % 3600) / 60
+        val s = sec % 60
+        return if (h > 0) {
+            "${h}시간 ${m}분 ${s}초"
+        } else {
+            "${m}분 ${s}초"
         }
     }
 
@@ -412,10 +419,6 @@ class SalaryService : Service() {
     }
 }
 
-/**
- * 25일 기준 월급일 자동 계산기
- * - 25일이 주말(토, 일)이거나 공휴일이면 직전 평일로 자동 롤백
- */
 object PaydayCalculator {
     private fun isHoliday(year: Int, month: Int, day: Int): Boolean {
         when {
@@ -428,8 +431,8 @@ object PaydayCalculator {
             month == 10 && day == 9 -> return true  // 한글날
             month == 12 && day == 25 -> return true // 성탄절
         }
-        if (year == 2026 && month == 5 && day == 25) return true // 부처님오신날 대체공휴일
-        if (year == 2026 && month == 9 && (day in 24..26)) return true // 추석 연휴
+        if (year == 2026 && month == 5 && day == 25) return true
+        if (year == 2026 && month == 9 && (day in 24..26)) return true
         if (year == 2025 && month == 5 && day == 6) return true
         if (year == 2025 && month == 10 && (day in 5..8)) return true
         return false
