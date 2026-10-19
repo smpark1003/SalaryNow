@@ -23,7 +23,6 @@ class SalaryService : Service() {
     private var currentMode: Int = MODE_NORMAL
     private var holidayStartTimeMillis: Long = 0L
 
-    // [Argon 최적화] 메모리 누수 방지를 위한 Intent 객체 재사용 (미리 생성)
     private val pendingStop by lazy {
         val intent = Intent(this, SalaryService::class.java).apply { action = ACTION_STOP_WORK }
         PendingIntent.getService(this, 102, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -108,7 +107,6 @@ class SalaryService : Service() {
     private fun startTimer() {
         updateRunnable?.let { handler.removeCallbacks(it) }
 
-        // [Argon 최적화] 월급일 계산 캐싱 변수
         var lastCheckedDayOfYear = -1
         var cachedPaydayInfo = PaydayCalculator.PaydayInfo(0, "")
 
@@ -118,7 +116,6 @@ class SalaryService : Service() {
                 val currentDayOfYear = now.get(Calendar.DAY_OF_YEAR)
                 val totalSecOfDay = now.get(Calendar.HOUR_OF_DAY) * 3600 + now.get(Calendar.MINUTE) * 60 + now.get(Calendar.SECOND)
 
-                // 자정이 지나 날짜가 바뀌었을 때만 월급일 연산 (배터리 및 CPU 소모 극도로 절약)
                 if (lastCheckedDayOfYear != currentDayOfYear) {
                     cachedPaydayInfo = PaydayCalculator.calculate(now)
                     lastCheckedDayOfYear = currentDayOfYear
@@ -238,7 +235,6 @@ class SalaryService : Service() {
                                     return
                                 }
                                 val autoMin = ((autoCloseSec - totalSecOfDay) / 60) + 1
-                                // 역방향 프로그레스바 (100 -> 0)
                                 val autoProgress = (((autoCloseSec - totalSecOfDay) / 1800.0) * 100).toInt()
                                 
                                 updateRichNotification(
@@ -276,7 +272,6 @@ class SalaryService : Service() {
         val h = sec / 3600
         val m = (sec % 3600) / 60
         val s = sec % 60
-        // H:MM:SS 포맷 (시간 앞 0 제거, 분/초는 2자리 유지하여 UI 떨림 방지)
         return String.format(Locale.KOREA, "%d:%02d:%02d", h, m, s)
     }
 
@@ -313,7 +308,7 @@ class SalaryService : Service() {
         }
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_salary) // 오류 수정: ic_salary로 복구
             .setContentTitle(cardTitle)
             .setContentText(cardDesc)
             .setSubText(chipText)
@@ -328,22 +323,26 @@ class SalaryService : Service() {
             .addAction(0, actionTitle, actionIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
+        // 오류 수정: .apply를 쓰지 않고 안전하게 명시적 호출
         cachedRoundedIcon?.let { builder.setLargeIcon(it) }
+        
         startForeground(NOTIFICATION_ID, builder.build())
     }
 
     private fun showShutdownNotification(msg: String) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val finalNoti = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_salary) // 오류 수정: ic_salary로 복구
             .setContentTitle("퇴근 타이머 알림")
             .setContentText(msg)
             .setColor(Color.parseColor("#1E3A8A"))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .apply { cachedRoundedIcon?.let { setLargeIcon(it) } }
-            .build()
-        manager.notify(FINAL_NOTI_ID, finalNoti)
+            
+        // 오류 수정: .apply를 쓰지 않고 안전하게 명시적 호출
+        cachedRoundedIcon?.let { builder.setLargeIcon(it) }
+        
+        manager.notify(FINAL_NOTI_ID, builder.build())
     }
 
     override fun onDestroy() {
@@ -385,7 +384,6 @@ class SalaryService : Service() {
                 set(Calendar.MILLISECOND, 0)
                 if (timeInMillis <= System.currentTimeMillis()) add(Calendar.DAY_OF_YEAR, 1)
                 
-                // [Argon 최적화] 휴일 및 주말 스킵 로직 연동
                 while (true) {
                     val y = get(Calendar.YEAR)
                     val m = get(Calendar.MONTH) + 1
