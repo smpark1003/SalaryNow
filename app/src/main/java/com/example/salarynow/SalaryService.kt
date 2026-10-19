@@ -23,6 +23,20 @@ class SalaryService : Service() {
     private var currentMode: Int = MODE_NORMAL
     private var holidayStartTimeMillis: Long = 0L
 
+    // [Argon 최적화] 메모리 누수 방지를 위한 Intent 객체 재사용 (미리 생성)
+    private val pendingStop by lazy {
+        val intent = Intent(this, SalaryService::class.java).apply { action = ACTION_STOP_WORK }
+        PendingIntent.getService(this, 102, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+    private val pendingOvertime by lazy {
+        val intent = Intent(this, SalaryService::class.java).apply { action = ACTION_START_OVERTIME }
+        PendingIntent.getService(this, 101, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+    private val pendingOpenApp by lazy {
+        val intent = Intent(this, MainActivity::class.java)
+        PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -73,7 +87,6 @@ class SalaryService : Service() {
                 val prefs = getSharedPreferences("TimerPrefs", Context.MODE_PRIVATE)
                 currentMode = prefs.getInt("work_mode", MODE_NORMAL)
                 
-                // 휴무일 모드인지 자동 판단
                 val now = Calendar.getInstance()
                 val y = now.get(Calendar.YEAR)
                 val m = now.get(Calendar.MONTH) + 1
@@ -95,12 +108,23 @@ class SalaryService : Service() {
     private fun startTimer() {
         updateRunnable?.let { handler.removeCallbacks(it) }
 
+        // [Argon 최적화] 월급일 계산 캐싱 변수
+        var lastCheckedDayOfYear = -1
+        var cachedPaydayInfo = PaydayCalculator.PaydayInfo(0, "")
+
         updateRunnable = object : Runnable {
             override fun run() {
                 val now = Calendar.getInstance()
+                val currentDayOfYear = now.get(Calendar.DAY_OF_YEAR)
                 val totalSecOfDay = now.get(Calendar.HOUR_OF_DAY) * 3600 + now.get(Calendar.MINUTE) * 60 + now.get(Calendar.SECOND)
 
-                // 출근/퇴근 시간 동적 설정
+                // 자정이 지나 날짜가 바뀌었을 때만 월급일 연산 (배터리 및 CPU 소모 극도로 절약)
+                if (lastCheckedDayOfYear != currentDayOfYear) {
+                    cachedPaydayInfo = PaydayCalculator.calculate(now)
+                    lastCheckedDayOfYear = currentDayOfYear
+                }
+                val paydayInfo = cachedPaydayInfo
+
                 val startSec = if (currentMode == MODE_HALF_AM) 14 * 3600 else 9 * 3600
                 val waitStartSec = startSec - (30 * 60)
                 val endSec = if (currentMode == MODE_HALF_PM) 13 * 3600 else 18 * 3600
@@ -109,27 +133,24 @@ class SalaryService : Service() {
                 val sec1200 = 12 * 3600
                 val sec1300 = 13 * 3600
                 val totalWorkSec = (endSec - startSec).toDouble().coerceAtLeast(1.0)
-                
-                val paydayInfo = PaydayCalculator.calculate(now)
 
                 if (currentMode == MODE_HOLIDAY) {
-                    // [특근 모드] 카운트업
                     val elapsedSec = ((System.currentTimeMillis() - holidayStartTimeMillis) / 1000).toInt()
                     val hStr = formatTimerHms(elapsedSec)
-                    val startTimeStr = String.format(Locale.KOREA, "%02d:%02d", Calendar.getInstance().apply{timeInMillis=holidayStartTimeMillis}.get(Calendar.HOUR_OF_DAY), Calendar.getInstance().apply{timeInMillis=holidayStartTimeMillis}.get(Calendar.MINUTE))
+                    val calStart = Calendar.getInstance().apply { timeInMillis = holidayStartTimeMillis }
+                    val startTimeStr = String.format(Locale.KOREA, "%02d:%02d", calStart.get(Calendar.HOUR_OF_DAY), calStart.get(Calendar.MINUTE))
                     
                     updateRichNotification(
                         cardTitle = "휴일 특근 진행 중",
                         cardDesc = "· 출근 시각: ${startTimeStr}\n· 현재 상태: 휴게시간 공제 없이 실시간 스톱워치 기록 중\n· 누적 시간: 총 ${formatHmsFull(elapsedSec)} 근무",
                         nowbarPrimary = "휴일근무 ${hStr}",
                         nowbarSecondary = "${startTimeStr} 출근 · 근무 중",
-                        chipText = "⚡︎ 특근 ${hStr}",
+                        chipText = "⚡\uFE0E 특근 ${hStr}",
                         actionTitle = "휴일 근무 종료",
-                        actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
+                        actionIntent = pendingStop,
                         progress = ((elapsedSec / (8 * 3600.0)) * 100).toInt().coerceIn(0, 100)
                     )
                 } else {
-                    // [정규/반차 모드] 카운트다운
                     when {
                         totalSecOfDay < waitStartSec -> {
                             updateRichNotification(
@@ -139,7 +160,7 @@ class SalaryService : Service() {
                                 nowbarSecondary = "정규 시작 전",
                                 chipText = "⎆ 출근 대기",
                                 actionTitle = "앱 종료",
-                                actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
+                                actionIntent = pendingStop,
                                 progress = 0
                             )
                         }
@@ -153,7 +174,7 @@ class SalaryService : Service() {
                                 nowbarSecondary = "정규 시작 카운트다운",
                                 chipText = "⎆ 출근 ${timerStr}",
                                 actionTitle = "앱 종료",
-                                actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
+                                actionIntent = pendingStop,
                                 progress = 0
                             )
                         }
@@ -169,7 +190,7 @@ class SalaryService : Service() {
                                 nowbarSecondary = "점심까지 ${formatTimerHms(lunchRemain)}",
                                 chipText = "🖥\uFE0E 퇴근 ${formatTimerHms(offRemain)}",
                                 actionTitle = "조기 퇴근",
-                                actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
+                                actionIntent = pendingStop,
                                 progress = progress
                             )
                         }
@@ -185,7 +206,7 @@ class SalaryService : Service() {
                                 nowbarSecondary = "복귀까지 ${formatTimerHmsShort(resumeRemain)}",
                                 chipText = "🍴\uFE0E 복귀 ${formatTimerHmsShort(resumeRemain)}",
                                 actionTitle = "퇴근하기",
-                                actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
+                                actionIntent = pendingStop,
                                 progress = progress
                             )
                         }
@@ -201,7 +222,7 @@ class SalaryService : Service() {
                                 nowbarSecondary = if (paydayInfo.dDay == 0) "오늘 급여일 (지급 예정)" else "월급날까지 ${paydayInfo.dDay}일 남음",
                                 chipText = "🖥\uFE0E 퇴근 ${formatTimerHms(offRemain)}",
                                 actionTitle = "퇴근하기",
-                                actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
+                                actionIntent = pendingStop,
                                 progress = progress
                             )
                         }
@@ -217,6 +238,9 @@ class SalaryService : Service() {
                                     return
                                 }
                                 val autoMin = ((autoCloseSec - totalSecOfDay) / 60) + 1
+                                // 역방향 프로그레스바 (100 -> 0)
+                                val autoProgress = (((autoCloseSec - totalSecOfDay) / 1800.0) * 100).toInt()
+                                
                                 updateRichNotification(
                                     cardTitle = "퇴근 경과 · 연장 대기",
                                     cardDesc = "· 초과 시간: ${formatHmsFull(overSec)} 지남\n· ${autoMin}분 후 자동 종료 (연장 근무 미등록 시)",
@@ -224,8 +248,8 @@ class SalaryService : Service() {
                                     nowbarSecondary = "${autoMin}분 후 자동 종료",
                                     chipText = "☾ 초과 +${timerStr}",
                                     actionTitle = "연장 근무",
-                                    actionIntent = getActionPendingIntent(ACTION_START_OVERTIME),
-                                    progress = 100
+                                    actionIntent = pendingOvertime,
+                                    progress = autoProgress
                                 )
                             } else {
                                 updateRichNotification(
@@ -235,7 +259,7 @@ class SalaryService : Service() {
                                     nowbarSecondary = "연장 근무 진행 중",
                                     chipText = "☾ 연장 +${timerStr}",
                                     actionTitle = "연장 종료 (퇴근)",
-                                    actionIntent = getActionPendingIntent(ACTION_STOP_WORK),
+                                    actionIntent = pendingStop,
                                     progress = 100
                                 )
                             }
@@ -252,6 +276,7 @@ class SalaryService : Service() {
         val h = sec / 3600
         val m = (sec % 3600) / 60
         val s = sec % 60
+        // H:MM:SS 포맷 (시간 앞 0 제거, 분/초는 2자리 유지하여 UI 떨림 방지)
         return String.format(Locale.KOREA, "%d:%02d:%02d", h, m, s)
     }
 
@@ -268,17 +293,9 @@ class SalaryService : Service() {
         return if (h > 0) "${h}시간 ${m}분 ${s}초" else "${m}분 ${s}초"
     }
 
-    private fun getActionPendingIntent(action: String): PendingIntent {
-        val intent = Intent(this, SalaryService::class.java).apply { this.action = action }
-        return PendingIntent.getService(this, if (action == ACTION_START_OVERTIME) 101 else 102, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-    }
-
     private fun updateRichNotification(
         cardTitle: String, cardDesc: String, nowbarPrimary: String, nowbarSecondary: String, chipText: String, actionTitle: String, actionIntent: PendingIntent, progress: Int
     ) {
-        val openAppIntent = Intent(this, MainActivity::class.java)
-        val pendingOpenApp = PendingIntent.getActivity(this, 0, openAppIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-
         val extras = Bundle().apply {
             putBoolean("com.samsung.android.support.ongoing_activity", true)
             putInt("android.ongoingActivityNoti.style", 1)
@@ -368,6 +385,7 @@ class SalaryService : Service() {
                 set(Calendar.MILLISECOND, 0)
                 if (timeInMillis <= System.currentTimeMillis()) add(Calendar.DAY_OF_YEAR, 1)
                 
+                // [Argon 최적화] 휴일 및 주말 스킵 로직 연동
                 while (true) {
                     val y = get(Calendar.YEAR)
                     val m = get(Calendar.MONTH) + 1
