@@ -71,10 +71,11 @@ class SalaryService : Service() {
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP_WORK -> {
                 isOvertimeMode = false
+                holidayStartTimeMillis = 0L // 종료 시 특근 누적 시간 초기화
                 showShutdownNotification("타이머가 종료되었습니다.")
                 scheduleNextWorkAlarm(this)
                 stopSelf()
@@ -92,11 +93,18 @@ class SalaryService : Service() {
                 val m = now.get(Calendar.MONTH) + 1
                 val d = now.get(Calendar.DAY_OF_MONTH)
                 val dow = now.get(Calendar.DAY_OF_WEEK)
+                
+                // 1. 주말/공휴일 자동 감지 후 특근 모드 강제 전환
                 if (dow == Calendar.SATURDAY || dow == Calendar.SUNDAY || PaydayCalculator.isHoliday(y, m, d)) {
                     if (currentMode != MODE_HOLIDAY) {
                         currentMode = MODE_HOLIDAY
-                        holidayStartTimeMillis = System.currentTimeMillis()
+                        prefs.edit().putInt("work_mode", MODE_HOLIDAY).apply()
                     }
+                }
+
+                // 2. ★ 버그 수정: 평일 강제 실행이든, 주말 자동 실행이든 시작 시간이 비어있으면 현재 시간으로 기록!
+                if (currentMode == MODE_HOLIDAY && holidayStartTimeMillis == 0L) {
+                    holidayStartTimeMillis = System.currentTimeMillis()
                 }
             }
         }
