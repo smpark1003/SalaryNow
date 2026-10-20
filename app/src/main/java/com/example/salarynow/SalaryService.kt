@@ -23,6 +23,7 @@ class SalaryService : Service() {
     private var currentMode: Int = MODE_NORMAL
     private var holidayStartTimeMillis: Long = 0L
 
+    // 메모리 누수 방지용 Intent 재사용
     private val pendingStop by lazy {
         val intent = Intent(this, SalaryService::class.java).apply { action = ACTION_STOP_WORK }
         PendingIntent.getService(this, 102, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -142,10 +143,11 @@ class SalaryService : Service() {
                         cardDesc = "· 출근 시각: ${startTimeStr}\n· 현재 상태: 휴게시간 공제 없이 실시간 스톱워치 기록 중\n· 누적 시간: 총 ${formatHmsFull(elapsedSec)} 근무",
                         nowbarPrimary = "휴일근무 ${hStr}",
                         nowbarSecondary = "${startTimeStr} 출근 · 근무 중",
-                        chipText = "⚡\uFE0E 특근 ${hStr}",
+                        chipText = "특근 ${hStr}", // 텍스트에서 기호 삭제
                         actionTitle = "휴일 근무 종료",
                         actionIntent = pendingStop,
-                        progress = ((elapsedSec / (8 * 3600.0)) * 100).toInt().coerceIn(0, 100)
+                        progress = ((elapsedSec / (8 * 3600.0)) * 100).toInt().coerceIn(0, 100),
+                        smallIconRes = R.drawable.ic_status_spark // 스파크 아이콘으로 교체!
                     )
                 } else {
                     when {
@@ -155,10 +157,11 @@ class SalaryService : Service() {
                                 cardDesc = "· 현재 상태: 출근 카운트다운 대기\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay})",
                                 nowbarPrimary = "출근 대기",
                                 nowbarSecondary = "정규 시작 전",
-                                chipText = "⎆ 출근 대기",
+                                chipText = "출근 대기",
                                 actionTitle = "앱 종료",
                                 actionIntent = pendingStop,
-                                progress = 0
+                                progress = 0,
+                                smallIconRes = R.drawable.ic_status_enter // 출입문 아이콘 교체!
                             )
                         }
                         totalSecOfDay in waitStartSec until startSec -> {
@@ -169,10 +172,11 @@ class SalaryService : Service() {
                                 cardDesc = "· 잔여 시간: 근무 시작까지 ${formatHmsFull(remainSec)} 남음",
                                 nowbarPrimary = "근무시작 ${timerStr} 남음",
                                 nowbarSecondary = "정규 시작 카운트다운",
-                                chipText = "⎆ 출근 ${timerStr}",
+                                chipText = "출근 ${timerStr}",
                                 actionTitle = "앱 종료",
                                 actionIntent = pendingStop,
-                                progress = 0
+                                progress = 0,
+                                smallIconRes = R.drawable.ic_status_enter // 출입문 아이콘 교체!
                             )
                         }
                         totalSecOfDay in startSec until sec1200 && currentMode != MODE_HALF_AM -> {
@@ -185,10 +189,11 @@ class SalaryService : Service() {
                                 cardDesc = "· 퇴근까지: ${formatHmsFull(offRemain)} 남음\n· 점심까지: ${formatHmsFull(lunchRemain)} 남음\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay})",
                                 nowbarPrimary = "퇴근까지 ${formatTimerHms(offRemain)}",
                                 nowbarSecondary = "점심까지 ${formatTimerHms(lunchRemain)}",
-                                chipText = "🖥\uFE0E 퇴근 ${formatTimerHms(offRemain)}",
+                                chipText = "퇴근 ${formatTimerHms(offRemain)}",
                                 actionTitle = "조기 퇴근",
                                 actionIntent = pendingStop,
-                                progress = progress
+                                progress = progress,
+                                smallIconRes = R.drawable.ic_status_work // 모니터 아이콘 교체!
                             )
                         }
                         totalSecOfDay in sec1200 until sec1300 && currentMode != MODE_HALF_PM && currentMode != MODE_HALF_AM -> {
@@ -201,10 +206,11 @@ class SalaryService : Service() {
                                 cardDesc = "· 복귀까지: ${formatHmsFull(resumeRemain)} 남음\n· 퇴근까지: ${formatHmsFull(offRemain)} 남음",
                                 nowbarPrimary = "퇴근까지 ${formatTimerHms(offRemain)}",
                                 nowbarSecondary = "복귀까지 ${formatTimerHmsShort(resumeRemain)}",
-                                chipText = "🍴\uFE0E 복귀 ${formatTimerHmsShort(resumeRemain)}",
+                                chipText = "복귀 ${formatTimerHmsShort(resumeRemain)}",
                                 actionTitle = "퇴근하기",
                                 actionIntent = pendingStop,
-                                progress = progress
+                                progress = progress,
+                                smallIconRes = R.drawable.ic_status_lunch // 식기 아이콘 교체!
                             )
                         }
                         totalSecOfDay in sec1300 until endSec || (currentMode == MODE_HALF_AM && totalSecOfDay in startSec until endSec) -> {
@@ -217,10 +223,11 @@ class SalaryService : Service() {
                                 cardDesc = "· 퇴근까지: ${formatHmsFull(offRemain)} 남음\n· 월급날: ${paydayInfo.dateString} (D-${paydayInfo.dDay})",
                                 nowbarPrimary = "퇴근까지 ${formatTimerHms(offRemain)}",
                                 nowbarSecondary = if (paydayInfo.dDay == 0) "오늘 급여일 (지급 예정)" else "월급날까지 ${paydayInfo.dDay}일 남음",
-                                chipText = "🖥\uFE0E 퇴근 ${formatTimerHms(offRemain)}",
+                                chipText = "퇴근 ${formatTimerHms(offRemain)}",
                                 actionTitle = "퇴근하기",
                                 actionIntent = pendingStop,
-                                progress = progress
+                                progress = progress,
+                                smallIconRes = R.drawable.ic_status_work // 모니터 아이콘 교체!
                             )
                         }
                         else -> {
@@ -242,10 +249,11 @@ class SalaryService : Service() {
                                     cardDesc = "· 초과 시간: ${formatHmsFull(overSec)} 지남\n· ${autoMin}분 후 자동 종료 (연장 근무 미등록 시)",
                                     nowbarPrimary = "퇴근 경과 +${timerStr}",
                                     nowbarSecondary = "${autoMin}분 후 자동 종료",
-                                    chipText = "☾ 초과 +${timerStr}",
+                                    chipText = "초과 +${timerStr}",
                                     actionTitle = "연장 근무",
                                     actionIntent = pendingOvertime,
-                                    progress = autoProgress
+                                    progress = autoProgress,
+                                    smallIconRes = R.drawable.ic_status_moon // 달 아이콘 교체!
                                 )
                             } else {
                                 updateRichNotification(
@@ -253,10 +261,11 @@ class SalaryService : Service() {
                                     cardDesc = "· 연장 시간: 정규 퇴근 후 ${formatHmsFull(overSec)} 지남\n· 상태: 수동 종료 시까지 영구 유지",
                                     nowbarPrimary = "퇴근 경과 +${timerStr}",
                                     nowbarSecondary = "연장 근무 진행 중",
-                                    chipText = "☾ 연장 +${timerStr}",
+                                    chipText = "연장 +${timerStr}",
                                     actionTitle = "연장 종료 (퇴근)",
                                     actionIntent = pendingStop,
-                                    progress = 100
+                                    progress = 100,
+                                    smallIconRes = R.drawable.ic_status_moon // 달 아이콘 교체!
                                 )
                             }
                         }
@@ -289,7 +298,7 @@ class SalaryService : Service() {
     }
 
     private fun updateRichNotification(
-        cardTitle: String, cardDesc: String, nowbarPrimary: String, nowbarSecondary: String, chipText: String, actionTitle: String, actionIntent: PendingIntent, progress: Int
+        cardTitle: String, cardDesc: String, nowbarPrimary: String, nowbarSecondary: String, chipText: String, actionTitle: String, actionIntent: PendingIntent, progress: Int, smallIconRes: Int
     ) {
         val extras = Bundle().apply {
             putBoolean("com.samsung.android.support.ongoing_activity", true)
@@ -302,13 +311,13 @@ class SalaryService : Service() {
             putString("android.ongoingActivityNoti.secondaryInfo", cardDesc)
             putString("android.ongoingActivityNoti.nowbarPrimaryInfo", nowbarPrimary)
             putString("android.ongoingActivityNoti.nowbarSecondaryInfo", nowbarSecondary)
-            putString("android.ongoingActivityNoti.chipExpandedText", chipText)
+            putString("android.ongoingActivityNoti.chipExpandedText", chipText) // 이모지 제거된 순수 텍스트
             putInt("android.ongoingActivityNoti.chipBgColor", Color.parseColor("#1E3A8A"))
             putInt("android.ongoingActivityNoti.actionType", 1)
         }
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_salary) // 오류 수정: ic_salary로 복구
+            .setSmallIcon(smallIconRes) // 여기서 기존의 지폐 아이콘 대신 상황별 2D 플랫 벡터로 동적 교체!!
             .setContentTitle(cardTitle)
             .setContentText(cardDesc)
             .setSubText(chipText)
@@ -323,25 +332,21 @@ class SalaryService : Service() {
             .addAction(0, actionTitle, actionIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
-        // 오류 수정: .apply를 쓰지 않고 안전하게 명시적 호출
         cachedRoundedIcon?.let { builder.setLargeIcon(it) }
-        
         startForeground(NOTIFICATION_ID, builder.build())
     }
 
     private fun showShutdownNotification(msg: String) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_salary) // 오류 수정: ic_salary로 복구
+            .setSmallIcon(R.drawable.ic_status_moon) // 종료 알림에는 달 아이콘 사용
             .setContentTitle("퇴근 타이머 알림")
             .setContentText(msg)
             .setColor(Color.parseColor("#1E3A8A"))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             
-        // 오류 수정: .apply를 쓰지 않고 안전하게 명시적 호출
         cachedRoundedIcon?.let { builder.setLargeIcon(it) }
-        
         manager.notify(FINAL_NOTI_ID, builder.build())
     }
 
