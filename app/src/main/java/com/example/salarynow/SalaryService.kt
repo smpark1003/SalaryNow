@@ -6,24 +6,21 @@ import android.content.Intent
 import android.graphics.*
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.util.*
 
 class SalaryService : Service() {
 
-    private val handler = Handler(Looper.getMainLooper())
-    private var updateRunnable: Runnable? = null
+    // [버그 수정 2] 메인 스레드가 잠들어도 멈추지 않는 독립 백그라운드 타이머 엔진 도입
+    private var timer: Timer? = null
     private var cachedRoundedIcon: Bitmap? = null
     private var isOvertimeMode: Boolean = false
 
     private var currentMode: Int = MODE_NORMAL
     private var holidayStartTimeMillis: Long = 0L
 
-    // 메모리 누수 방지용 Intent 재사용
     private val pendingStop by lazy {
         val intent = Intent(this, SalaryService::class.java).apply { action = ACTION_STOP_WORK }
         PendingIntent.getService(this, 102, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -71,11 +68,11 @@ class SalaryService : Service() {
         }
     }
 
-override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP_WORK -> {
                 isOvertimeMode = false
-                holidayStartTimeMillis = 0L // 종료 시 특근 누적 시간 초기화
+                holidayStartTimeMillis = 0L
                 showShutdownNotification("타이머가 종료되었습니다.")
                 scheduleNextWorkAlarm(this)
                 stopSelf()
@@ -94,7 +91,6 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
                 val d = now.get(Calendar.DAY_OF_MONTH)
                 val dow = now.get(Calendar.DAY_OF_WEEK)
                 
-                // 1. 주말/공휴일 자동 감지 후 특근 모드 강제 전환
                 if (dow == Calendar.SATURDAY || dow == Calendar.SUNDAY || PaydayCalculator.isHoliday(y, m, d)) {
                     if (currentMode != MODE_HOLIDAY) {
                         currentMode = MODE_HOLIDAY
@@ -102,7 +98,6 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
                     }
                 }
 
-                // 2. ★ 버그 수정: 평일 강제 실행이든, 주말 자동 실행이든 시작 시간이 비어있으면 현재 시간으로 기록!
                 if (currentMode == MODE_HOLIDAY && holidayStartTimeMillis == 0L) {
                     holidayStartTimeMillis = System.currentTimeMillis()
                 }
@@ -114,12 +109,15 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     }
 
     private fun startTimer() {
-        updateRunnable?.let { handler.removeCallbacks(it) }
+        // 기존 타이머가 있으면 중지하고 새로 시작
+        timer?.cancel()
+        timer = Timer()
 
         var lastCheckedDayOfYear = -1
         var cachedPaydayInfo = PaydayCalculator.PaydayInfo(0, "")
 
-        updateRunnable = object : Runnable {
+        // [버그 수정 2] 백그라운드 전용 스레드에서 1초마다 실행 (잠금화면 프리징 해결)
+        timer?.scheduleAtFixedRate(object : TimerTask() {
             override fun run() {
                 val now = Calendar.getInstance()
                 val currentDayOfYear = now.get(Calendar.DAY_OF_YEAR)
@@ -151,11 +149,11 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
                         cardDesc = "· 출근 시각: ${startTimeStr}\n· 현재 상태: 휴게시간 공제 없이 실시간 스톱워치 기록 중\n· 누적 시간: 총 ${formatHmsFull(elapsedSec)} 근무",
                         nowbarPrimary = "휴일근무 ${hStr}",
                         nowbarSecondary = "${startTimeStr} 출근 · 근무 중",
-                        chipText = "특근 ${hStr}", // 텍스트에서 기호 삭제
+                        chipText = "⚡\uFE0E 특근 ${hStr}",
                         actionTitle = "휴일 근무 종료",
                         actionIntent = pendingStop,
                         progress = ((elapsedSec / (8 * 3600.0)) * 100).toInt().coerceIn(0, 100),
-                        smallIconRes = R.drawable.ic_status_spark // 스파크 아이콘으로 교체!
+                        smallIconRes = R.drawable.ic_status_spark
                     )
                 } else {
                     when {
@@ -165,11 +163,11 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
                                 cardDesc = "· 현재 상태: 출근 카운트다운 대기\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay})",
                                 nowbarPrimary = "출근 대기",
                                 nowbarSecondary = "정규 시작 전",
-                                chipText = "출근 대기",
+                                chipText = "⎆ 출근 대기",
                                 actionTitle = "앱 종료",
                                 actionIntent = pendingStop,
                                 progress = 0,
-                                smallIconRes = R.drawable.ic_status_enter // 출입문 아이콘 교체!
+                                smallIconRes = R.drawable.ic_status_enter
                             )
                         }
                         totalSecOfDay in waitStartSec until startSec -> {
@@ -180,11 +178,11 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
                                 cardDesc = "· 잔여 시간: 근무 시작까지 ${formatHmsFull(remainSec)} 남음",
                                 nowbarPrimary = "근무시작 ${timerStr} 남음",
                                 nowbarSecondary = "정규 시작 카운트다운",
-                                chipText = "출근 ${timerStr}",
+                                chipText = "⎆ 출근 ${timerStr}",
                                 actionTitle = "앱 종료",
                                 actionIntent = pendingStop,
                                 progress = 0,
-                                smallIconRes = R.drawable.ic_status_enter // 출입문 아이콘 교체!
+                                smallIconRes = R.drawable.ic_status_enter
                             )
                         }
                         totalSecOfDay in startSec until sec1200 && currentMode != MODE_HALF_AM -> {
@@ -197,11 +195,11 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
                                 cardDesc = "· 퇴근까지: ${formatHmsFull(offRemain)} 남음\n· 점심까지: ${formatHmsFull(lunchRemain)} 남음\n· 다음 월급일: ${paydayInfo.dateString} (D-${paydayInfo.dDay})",
                                 nowbarPrimary = "퇴근까지 ${formatTimerHms(offRemain)}",
                                 nowbarSecondary = "점심까지 ${formatTimerHms(lunchRemain)}",
-                                chipText = "퇴근 ${formatTimerHms(offRemain)}",
+                                chipText = "🖥\uFE0E 퇴근 ${formatTimerHms(offRemain)}",
                                 actionTitle = "조기 퇴근",
                                 actionIntent = pendingStop,
                                 progress = progress,
-                                smallIconRes = R.drawable.ic_status_work // 모니터 아이콘 교체!
+                                smallIconRes = R.drawable.ic_status_work
                             )
                         }
                         totalSecOfDay in sec1200 until sec1300 && currentMode != MODE_HALF_PM && currentMode != MODE_HALF_AM -> {
@@ -214,11 +212,11 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
                                 cardDesc = "· 복귀까지: ${formatHmsFull(resumeRemain)} 남음\n· 퇴근까지: ${formatHmsFull(offRemain)} 남음",
                                 nowbarPrimary = "퇴근까지 ${formatTimerHms(offRemain)}",
                                 nowbarSecondary = "복귀까지 ${formatTimerHmsShort(resumeRemain)}",
-                                chipText = "복귀 ${formatTimerHmsShort(resumeRemain)}",
+                                chipText = "🍴\uFE0E 복귀 ${formatTimerHmsShort(resumeRemain)}",
                                 actionTitle = "퇴근하기",
                                 actionIntent = pendingStop,
                                 progress = progress,
-                                smallIconRes = R.drawable.ic_status_lunch // 식기 아이콘 교체!
+                                smallIconRes = R.drawable.ic_status_lunch
                             )
                         }
                         totalSecOfDay in sec1300 until endSec || (currentMode == MODE_HALF_AM && totalSecOfDay in startSec until endSec) -> {
@@ -231,11 +229,11 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
                                 cardDesc = "· 퇴근까지: ${formatHmsFull(offRemain)} 남음\n· 월급날: ${paydayInfo.dateString} (D-${paydayInfo.dDay})",
                                 nowbarPrimary = "퇴근까지 ${formatTimerHms(offRemain)}",
                                 nowbarSecondary = if (paydayInfo.dDay == 0) "오늘 급여일 (지급 예정)" else "월급날까지 ${paydayInfo.dDay}일 남음",
-                                chipText = "퇴근 ${formatTimerHms(offRemain)}",
+                                chipText = "🖥\uFE0E 퇴근 ${formatTimerHms(offRemain)}",
                                 actionTitle = "퇴근하기",
                                 actionIntent = pendingStop,
                                 progress = progress,
-                                smallIconRes = R.drawable.ic_status_work // 모니터 아이콘 교체!
+                                smallIconRes = R.drawable.ic_status_work
                             )
                         }
                         else -> {
@@ -247,6 +245,7 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
                                     showShutdownNotification("근무 종료 30분 경과로 타이머가 자동 종료되었습니다.")
                                     scheduleNextWorkAlarm(this@SalaryService)
                                     stopSelf()
+                                    timer?.cancel() // 타이머 스레드 완전 종료
                                     return
                                 }
                                 val autoMin = ((autoCloseSec - totalSecOfDay) / 60) + 1
@@ -257,11 +256,11 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
                                     cardDesc = "· 초과 시간: ${formatHmsFull(overSec)} 지남\n· ${autoMin}분 후 자동 종료 (연장 근무 미등록 시)",
                                     nowbarPrimary = "퇴근 경과 +${timerStr}",
                                     nowbarSecondary = "${autoMin}분 후 자동 종료",
-                                    chipText = "초과 +${timerStr}",
+                                    chipText = "☾ 초과 +${timerStr}",
                                     actionTitle = "연장 근무",
                                     actionIntent = pendingOvertime,
                                     progress = autoProgress,
-                                    smallIconRes = R.drawable.ic_status_moon // 달 아이콘 교체!
+                                    smallIconRes = R.drawable.ic_status_moon
                                 )
                             } else {
                                 updateRichNotification(
@@ -269,20 +268,18 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
                                     cardDesc = "· 연장 시간: 정규 퇴근 후 ${formatHmsFull(overSec)} 지남\n· 상태: 수동 종료 시까지 영구 유지",
                                     nowbarPrimary = "퇴근 경과 +${timerStr}",
                                     nowbarSecondary = "연장 근무 진행 중",
-                                    chipText = "연장 +${timerStr}",
+                                    chipText = "☾ 연장 +${timerStr}",
                                     actionTitle = "연장 종료 (퇴근)",
                                     actionIntent = pendingStop,
                                     progress = 100,
-                                    smallIconRes = R.drawable.ic_status_moon // 달 아이콘 교체!
+                                    smallIconRes = R.drawable.ic_status_moon
                                 )
                             }
                         }
                     }
                 }
-                handler.postDelayed(this, 1000)
             }
-        }
-        handler.post(updateRunnable!!)
+        }, 0, 1000)
     }
 
     private fun formatTimerHms(sec: Int): String {
@@ -319,13 +316,13 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
             putString("android.ongoingActivityNoti.secondaryInfo", cardDesc)
             putString("android.ongoingActivityNoti.nowbarPrimaryInfo", nowbarPrimary)
             putString("android.ongoingActivityNoti.nowbarSecondaryInfo", nowbarSecondary)
-            putString("android.ongoingActivityNoti.chipExpandedText", chipText) // 이모지 제거된 순수 텍스트
+            putString("android.ongoingActivityNoti.chipExpandedText", chipText)
             putInt("android.ongoingActivityNoti.chipBgColor", Color.parseColor("#1E3A8A"))
             putInt("android.ongoingActivityNoti.actionType", 1)
         }
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(smallIconRes) // 여기서 기존의 지폐 아이콘 대신 상황별 2D 플랫 벡터로 동적 교체!!
+            .setSmallIcon(smallIconRes)
             .setContentTitle(cardTitle)
             .setContentText(cardDesc)
             .setSubText(chipText)
@@ -347,7 +344,7 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     private fun showShutdownNotification(msg: String) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_status_moon) // 종료 알림에는 달 아이콘 사용
+            .setSmallIcon(R.drawable.ic_status_moon)
             .setContentTitle("퇴근 타이머 알림")
             .setContentText(msg)
             .setColor(Color.parseColor("#1E3A8A"))
@@ -360,7 +357,7 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
 
     override fun onDestroy() {
         super.onDestroy()
-        updateRunnable?.let { handler.removeCallbacks(it) }
+        timer?.cancel() // 서비스가 종료될 때 타이머도 확실히 소멸
     }
 
     private fun createNotificationChannel() {
@@ -388,7 +385,13 @@ override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         fun scheduleNextWorkAlarm(context: Context) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val intent = Intent(context, SalaryService::class.java)
-            val pendingIntent = PendingIntent.getService(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            
+            // [버그 수정 1] 백그라운드 제한으로 앱이 강제 종료(크래시)되는 현상 방지
+            val pendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                PendingIntent.getForegroundService(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            } else {
+                PendingIntent.getService(context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            }
 
             val cal = Calendar.getInstance().apply {
                 set(Calendar.HOUR_OF_DAY, 8)
