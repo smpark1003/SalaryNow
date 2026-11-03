@@ -14,6 +14,7 @@ import java.util.*
 class SalaryService : Service() {
 
     private var timer: Timer? = null
+    private var cachedRoundedIcon: Bitmap? = null
     private var isOvertimeMode: Boolean = false
 
     private var currentMode: Int = MODE_NORMAL
@@ -37,26 +38,33 @@ class SalaryService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        cachedRoundedIcon = getRoundedBitmap(this, R.drawable.ic_launcher, 14f)
     }
 
-    // [아이콘 교체 핵심] 2D 상황별 벡터 아이콘(XML)을 첫 번째(왼쪽) 자리로 넣기 위해 비트맵으로 변환하는 함수
-    private fun getSituationIconBitmap(context: Context, drawableId: Int): Bitmap? {
+    private fun getRoundedBitmap(context: Context, drawableId: Int, cornerRadiusDp: Float): Bitmap? {
         return try {
             val drawable = ContextCompat.getDrawable(context, drawableId) ?: return null
-            val width = dpToPx(context, 48f) // 적절한 크기로 변환
-            val height = dpToPx(context, 48f)
+            val width = drawable.intrinsicWidth.coerceAtLeast(128)
+            val height = drawable.intrinsicHeight.coerceAtLeast(128)
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             drawable.setBounds(0, 0, width, height)
             drawable.draw(canvas)
-            bitmap
+
+            val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val roundCanvas = Canvas(output)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            val density = context.resources.displayMetrics.density
+            val radiusPx = cornerRadiusDp * density
+            val rect = RectF(0f, 0f, width.toFloat(), height.toFloat())
+
+            roundCanvas.drawRoundRect(rect, radiusPx, radiusPx, paint)
+            paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+            roundCanvas.drawBitmap(bitmap, 0f, 0f, paint)
+            output
         } catch (e: Exception) {
             null
         }
-    }
-
-    private fun dpToPx(context: Context, dp: Float): Int {
-        return (dp * context.resources.displayMetrics.density + 0.5f).toInt()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -93,7 +101,7 @@ class SalaryService : Service() {
                         holidayStartTimeMillis = System.currentTimeMillis()
                     }
                 } else {
-                    // [버그 완벽 수정] 평일인데 앱이 특근 모드로 남아있다면 무조건 정규 근무로 강제 초기화!
+                    // [핵심 수정] 평일인데 주말의 특근 모드가 남아있다면 정규 모드로 강제 복구!
                     if (currentMode == MODE_HOLIDAY) {
                         currentMode = MODE_NORMAL
                         holidayStartTimeMillis = 0L
@@ -150,7 +158,7 @@ class SalaryService : Service() {
                         actionTitle = "휴일 근무 종료",
                         actionIntent = pendingStop,
                         progress = ((elapsedSec / (8 * 3600.0)) * 100).toInt().coerceIn(0, 100),
-                        situationIconRes = R.drawable.ic_status_spark // 번개
+                        situationIconRes = R.drawable.ic_status_spark
                     )
                 } else {
                     when {
@@ -164,7 +172,7 @@ class SalaryService : Service() {
                                 actionTitle = "앱 종료",
                                 actionIntent = pendingStop,
                                 progress = 0,
-                                situationIconRes = R.drawable.ic_status_enter // 출입문
+                                situationIconRes = R.drawable.ic_status_enter
                             )
                         }
                         totalSecOfDay in waitStartSec until startSec -> {
@@ -179,7 +187,7 @@ class SalaryService : Service() {
                                 actionTitle = "앱 종료",
                                 actionIntent = pendingStop,
                                 progress = 0,
-                                situationIconRes = R.drawable.ic_status_enter // 출입문
+                                situationIconRes = R.drawable.ic_status_enter
                             )
                         }
                         totalSecOfDay in startSec until sec1200 && currentMode != MODE_HALF_AM -> {
@@ -196,7 +204,7 @@ class SalaryService : Service() {
                                 actionTitle = "조기 퇴근",
                                 actionIntent = pendingStop,
                                 progress = progress,
-                                situationIconRes = R.drawable.ic_status_work // 모니터
+                                situationIconRes = R.drawable.ic_status_work
                             )
                         }
                         totalSecOfDay in sec1200 until sec1300 && currentMode != MODE_HALF_PM && currentMode != MODE_HALF_AM -> {
@@ -213,7 +221,7 @@ class SalaryService : Service() {
                                 actionTitle = "퇴근하기",
                                 actionIntent = pendingStop,
                                 progress = progress,
-                                situationIconRes = R.drawable.ic_status_lunch // 식기
+                                situationIconRes = R.drawable.ic_status_lunch
                             )
                         }
                         totalSecOfDay in sec1300 until endSec || (currentMode == MODE_HALF_AM && totalSecOfDay in startSec until endSec) -> {
@@ -230,7 +238,7 @@ class SalaryService : Service() {
                                 actionTitle = "퇴근하기",
                                 actionIntent = pendingStop,
                                 progress = progress,
-                                situationIconRes = R.drawable.ic_status_work // 모니터
+                                situationIconRes = R.drawable.ic_status_work
                             )
                         }
                         else -> {
@@ -257,7 +265,7 @@ class SalaryService : Service() {
                                     actionTitle = "연장 근무",
                                     actionIntent = pendingOvertime,
                                     progress = autoProgress,
-                                    situationIconRes = R.drawable.ic_status_moon // 달
+                                    situationIconRes = R.drawable.ic_status_moon
                                 )
                             } else {
                                 updateRichNotification(
@@ -269,7 +277,7 @@ class SalaryService : Service() {
                                     actionTitle = "연장 종료 (퇴근)",
                                     actionIntent = pendingStop,
                                     progress = 100,
-                                    situationIconRes = R.drawable.ic_status_moon // 달
+                                    situationIconRes = R.drawable.ic_status_moon
                                 )
                             }
                         }
@@ -318,13 +326,11 @@ class SalaryService : Service() {
             putInt("android.ongoingActivityNoti.actionType", 1)
         }
 
-        // [핵심 변경 사항] 아이콘 위치 완벽 교체!
-        // 1. setSmallIcon: 앱 기본 지폐 아이콘 (작은 아이콘)
-        // 2. setLargeIcon: 상황별 픽토그램 (큰 아이콘 = 왼쪽 메인 슬롯)
-        val situationBitmap = getSituationIconBitmap(this, situationIconRes)
-
+        // [핵심 변경 사항] 네이버지도 방식 완벽 구현! 
+        // 1. setSmallIcon = 상황별 픽토그램 (상단바 칩 내부 & 나우바 오른쪽 위)
+        // 2. setLargeIcon = URA 로고 (나우바 왼쪽 메인 아이콘)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_salary) // 지폐 모양 고정
+            .setSmallIcon(situationIconRes)
             .setContentTitle(cardTitle)
             .setContentText(cardDesc)
             .setSubText(chipText)
@@ -339,7 +345,7 @@ class SalaryService : Service() {
             .addAction(0, actionTitle, actionIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
-        situationBitmap?.let { builder.setLargeIcon(it) } // 픽토그램을 왼쪽에 배치!
+        cachedRoundedIcon?.let { builder.setLargeIcon(it) } // URA 로고를 왼쪽에 배치
 
         startForeground(NOTIFICATION_ID, builder.build())
     }
@@ -347,13 +353,14 @@ class SalaryService : Service() {
     private fun showShutdownNotification(msg: String) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_salary)
+            .setSmallIcon(R.drawable.ic_status_moon)
             .setContentTitle("퇴근 타이머 알림")
             .setContentText(msg)
             .setColor(Color.parseColor("#1E3A8A"))
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             
+        cachedRoundedIcon?.let { builder.setLargeIcon(it) }
         manager.notify(FINAL_NOTI_ID, builder.build())
     }
 
